@@ -1,7 +1,9 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 
 const PORT = 8765;
+const RUNTIME_PATH = new URL("./bridge-runtime.js", import.meta.url);
 const events = [];
 const pendingCommands = new Map();
 const commandResults = new Map();
@@ -13,6 +15,17 @@ const json = (res, status, value) => {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+  });
+  res.end(body);
+};
+
+const javascript = (res, status, body) => {
+  res.writeHead(status, {
+    "Content-Type": "application/javascript; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Cache-Control": "no-store"
   });
   res.end(body);
 };
@@ -29,6 +42,15 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "OPTIONS") return json(res, 200, { ok: true });
     const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+
+    if (req.method === "GET" && url.pathname === "/bridge-runtime.js") {
+      return javascript(res, 200, await readFile(RUNTIME_PATH, "utf8"));
+    }
+
+    if (req.method === "GET" && url.pathname === "/runtime-version") {
+      const runtime = await stat(RUNTIME_PATH);
+      return json(res, 200, { mtimeMs: runtime.mtimeMs, size: runtime.size });
+    }
 
     if (req.method === "POST" && url.pathname === "/events") {
       const body = await readBody(req);

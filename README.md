@@ -36,7 +36,8 @@ Not implemented yet:
 ## Repository Layout
 
 - `extension/manifest.json`: Chrome MV3 extension manifest.
-- `extension/bridge-main.js`: injected page bridge.
+- `extension/bridge-main.js`: stable loader injected by Chrome.
+- `server/bridge-runtime.js`: hot-loaded page bridge runtime served by the local server.
 - `server/server.mjs`: local bridge server.
 - `docs/context.md`: research context and known RunningHub internals.
 - `docs/next-steps.md`: recommended continuation plan.
@@ -58,6 +59,8 @@ Not implemented yet:
 4. Refresh a RunningHub canvas page:
 
    `https://rhtv.runninghub.cn/projects/canvas/<canvas_id>`
+
+After the unpacked extension is loaded once, most bridge changes only require restarting the local bridge server if needed and refreshing the RunningHub page. The extension loader fetches the latest runtime from `http://127.0.0.1:8765/bridge-runtime.js`.
 
 5. Check whether the bridge is connected:
 
