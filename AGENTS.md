@@ -17,9 +17,8 @@ Primary integration shape:
 
 ## Communication
 
-- Use Chinese when reporting to wind.
+- Prefer concise, direct status updates.
 - Keep English technical terms when useful.
-- Use Chinese corner quotes: 「」.
 - Be direct about uncertainty and blockers.
 - Do not expose cookies, access tokens, or private payloads in chat or committed files.
 
@@ -38,4 +37,3 @@ Primary integration shape:
 - `node server/server.mjs`
 - `curl http://127.0.0.1:8765/health`
 - `curl http://127.0.0.1:8765/events`
-

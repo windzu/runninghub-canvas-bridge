@@ -2,7 +2,7 @@
 
 ## User Goal
 
-wind wants external agents, especially Codex, to operate RunningHub infinite canvas through API/tool-level control.
+This project explores how external agents, especially Codex-like coding agents, can operate RunningHub infinite canvas through API/tool-level control.
 
 The target interaction style is:
 
@@ -14,8 +14,7 @@ The explicit non-goal is mouse-only UI automation. Mouse automation may be usefu
 
 - RunningHub homepage: `https://www.runninghub.cn/`
 - Infinite canvas host: `https://rhtv.runninghub.cn/`
-- Test canvas used during research: `https://rhtv.runninghub.cn/projects/canvas/2058411776657580034`
-- Earlier canvas: `https://rhtv.runninghub.cn/projects/canvas/2057748076759080961`
+- Example canvas URL shape: `https://rhtv.runninghub.cn/projects/canvas/<canvas_id>`
 
 ## Observed Built-in Agent Behavior
 
@@ -23,15 +22,15 @@ The built-in RunningHub Agent can create nodes and edges without manual dragging
 
 Observed successful test:
 
-- Canvas: `2058411776657580034`
+- Canvas: `<canvas_id>`
 - Prompt: create two text nodes and connect them, no generation and no RH coin consumption.
 - Created nodes:
-  - `node-1779598635392-mmzm0bf4d`
-  - `node-1779598635400-hw447lcjb`
+  - `<source_node_id>`
+  - `<target_node_id>`
 - Created group:
-  - `group-1779598635402`
+  - `<group_id>`
 - Created edge:
-  - `e-node-1779598635392-mmzm0bf4d-node-1779598635400-hw447lcjb`
+  - `<edge_id>`
 - Refresh preserved the graph, so the result was persisted server-side.
 
 ## Known RunningHub APIs

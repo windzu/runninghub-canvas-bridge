@@ -40,50 +40,86 @@ Not implemented yet:
 - `server/bridge-runtime.js`: hot-loaded page bridge runtime served by the local server.
 - `server/server.mjs`: local bridge server.
 - `AGENT_QUICKSTART.md`: minimal handoff guide for Agents operating the canvas.
+- `docs/agent-usage.md`: fuller operating guide for autonomous Agents.
 - `docs/context.md`: research context and known RunningHub internals.
 - `docs/next-steps.md`: recommended continuation plan.
+- `CONTRIBUTING.md`: Issue reporting guidelines and current contribution policy.
 
 ## Quick Start
 
-1. Start the local bridge server:
+Prerequisites:
 
-   `node server/server.mjs`
+- Node.js 18 or newer.
+- Chrome or another Chromium browser that supports unpacked extensions.
+- A logged-in RunningHub account.
+- An existing RunningHub canvas page, for example:
 
-2. Open Chrome extension management:
+  `https://rhtv.runninghub.cn/projects/canvas/<canvas_id>`
+
+Setup:
+
+1. Clone this repository and enter the project directory.
+
+2. Start the local bridge server:
+
+   `npm run start`
+
+3. Open Chrome extension management:
 
    `chrome://extensions/`
 
-3. Enable Developer Mode and load unpacked extension:
+4. Enable Developer Mode and load the unpacked extension from this repository:
 
-   `/Users/wind/Projects/runninghub-canvas-bridge/extension`
+   `<repo_root>/extension`
 
-4. Refresh a RunningHub canvas page:
+5. Open or refresh a RunningHub canvas page:
 
    `https://rhtv.runninghub.cn/projects/canvas/<canvas_id>`
 
 After the unpacked extension is loaded once, most bridge changes only require restarting the local bridge server if needed and refreshing the RunningHub page. The extension loader fetches the latest runtime from `http://127.0.0.1:8765/bridge-runtime.js`.
 
-5. Check whether the bridge is connected:
+Verify:
+
+1. Check local server health:
+
+   `npm run bridge -- health`
+
+2. Check whether the page client is connected:
 
    `npm run bridge -- events`
 
-6. Send a basic graph snapshot command:
+3. Run Agent preflight checks:
+
+   `npm run bridge -- preflight`
+
+   Continue only when `preflight.ok` is `true`.
+
+4. Send a basic graph snapshot command:
 
    `npm run bridge -- snapshot`
 
-7. Read canvas details through the page context:
+5. Read canvas details through the page context:
 
-   `npm run bridge -- get-canvas-detail 2058411776657580034`
+   `npm run bridge -- get-canvas-detail <canvas_id>`
 
-8. Read workflow list through the page context:
+6. Read workflow list through the page context:
 
-   `npm run bridge -- workflow-list 2058411776657580034`
+   `npm run bridge -- workflow-list <canvas_id>`
 
 The CLI waits for command results by default. If multiple RunningHub tabs are open, use the `clientId` shown in `events`:
 
 `npm run bridge -- snapshot --client <clientId>`
 
 When no `--client` is passed, the server routes commands to the most recently active RunningHub canvas tab. Use `npm run bridge -- clients` to inspect active page clients.
+
+Common setup failures:
+
+- `BRIDGE_OFFLINE`: start the local server with `npm run start`.
+- `NO_PAGE_CLIENT`: open or refresh a RunningHub canvas page with the unpacked extension enabled.
+- `STALE_RUNTIME`: refresh the RunningHub canvas page so it picks up the latest runtime.
+- `MISSING_CAPABILITY`: refresh the page and verify the extension loaded from the current repository.
+
+For autonomous Agent usage, start with `AGENT_QUICKSTART.md`, then use `docs/agent-usage.md` when implementing longer workflows.
 
 ## CLI Commands
 
@@ -128,7 +164,7 @@ When no `--client` is passed, the server routes commands to the most recently ac
 
 For endpoints whose body shape changes, override the wrapper default with `--body-json`. Example:
 
-`npm run bridge -- get-canvas-detail 2058411776657580034 --body-json '{"id":"2058411776657580034"}'`
+`npm run bridge -- get-canvas-detail <canvas_id> --body-json '{"id":"<canvas_id>"}'`
 
 Mutating commands support `--dry-run`. A dry run executes the mutation on an offline Yjs copy and returns the diff without changing the live canvas. Real mutating commands return a `rollbackId` and before/after diff; use `rollback` to restore a previous point.
 

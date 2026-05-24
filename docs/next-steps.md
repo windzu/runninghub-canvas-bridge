@@ -12,11 +12,11 @@
 
 3. Load the unpacked extension in Chrome:
 
-   `/Users/wind/Projects/runninghub-canvas-bridge/extension`
+   `<repo_root>/extension`
 
 4. Refresh the test canvas:
 
-   `https://rhtv.runninghub.cn/projects/canvas/2058411776657580034`
+   `https://rhtv.runninghub.cn/projects/canvas/<canvas_id>`
 
 5. Confirm `bridge.installed` appears:
 
