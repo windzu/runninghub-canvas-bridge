@@ -11,18 +11,21 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs snapshot [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs export-workflow [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs yjs-snapshot [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs rollback-list [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs rollback [rollbackId] [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs capabilities [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs find-elements [--client <clientId>] [--timeout <ms>] [--query-json <json>]
   node scripts/rh-bridge.mjs get-element <id> [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs connections <nodeId> [--client <clientId>] [--timeout <ms>] [--direction <both|upstream|downstream>] [--depth <n>]
-  node scripts/rh-bridge.mjs create-text-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>]
-  node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>]
-  node scripts/rh-bridge.mjs connect-nodes <sourceId> <targetId> [--client <clientId>] [--timeout <ms>]
-  node scripts/rh-bridge.mjs update-node <nodeId> [--client <clientId>] [--timeout <ms>] [--patch-json <json>] [--data-json <json>] [--title <title>]
-  node scripts/rh-bridge.mjs update-node-text <nodeId> <text> [--client <clientId>] [--timeout <ms>] [--title <title>]
-  node scripts/rh-bridge.mjs move-node <nodeId> <x> <y> [--client <clientId>] [--timeout <ms>]
-  node scripts/rh-bridge.mjs move-nodes <id...> [--client <clientId>] [--timeout <ms>] [--dx <n>] [--dy <n>] [--positions-json <json>]
-  node scripts/rh-bridge.mjs delete-elements <id...> [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs create-text-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
+  node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
+  node scripts/rh-bridge.mjs create-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
+  node scripts/rh-bridge.mjs connect-nodes <sourceId> <targetId> [--client <clientId>] [--timeout <ms>] [--dry-run]
+  node scripts/rh-bridge.mjs update-node <nodeId> [--client <clientId>] [--timeout <ms>] [--patch-json <json>] [--data-json <json>] [--title <title>] [--dry-run]
+  node scripts/rh-bridge.mjs update-node-text <nodeId> <text> [--client <clientId>] [--timeout <ms>] [--title <title>] [--dry-run]
+  node scripts/rh-bridge.mjs move-node <nodeId> <x> <y> [--client <clientId>] [--timeout <ms>] [--dry-run]
+  node scripts/rh-bridge.mjs move-nodes <id...> [--client <clientId>] [--timeout <ms>] [--dx <n>] [--dy <n>] [--positions-json <json>] [--dry-run]
+  node scripts/rh-bridge.mjs delete-elements <id...> [--client <clientId>] [--timeout <ms>] [--dry-run]
   node scripts/rh-bridge.mjs get-canvas-detail <canvasId> [--timeout <ms>] [--body-json <json>]
   node scripts/rh-bridge.mjs workflow-list <canvasId> [--timeout <ms>] [--body-json <json>]
   node scripts/rh-bridge.mjs api-post <endpoint> [--body-json <json>] [--timeout <ms>]
@@ -47,6 +50,13 @@ const option = (name, fallback) => {
   if (!value || value.startsWith("--")) fail(`Missing value for ${name}`);
   args.splice(index, 2);
   return value;
+};
+
+const flag = (name) => {
+  const index = args.indexOf(name);
+  if (index === -1) return false;
+  args.splice(index, 1);
+  return true;
 };
 
 const bodyOption = (fallback) => {
@@ -130,6 +140,7 @@ const direction = option("--direction", "both");
 const depth = option("--depth", "1");
 const dx = option("--dx", "0");
 const dy = option("--dy", "0");
+const dryRun = flag("--dry-run");
 const baseCommand = clientId ? { clientId } : {};
 
 if (commandName === "health") {
@@ -145,6 +156,11 @@ if (commandName === "health") {
   print(await enqueue({ ...baseCommand, type: "canvas.exportWorkflow" }, timeoutMs));
 } else if (commandName === "yjs-snapshot") {
   print(await enqueue({ ...baseCommand, type: "canvas.yjsSnapshot" }, timeoutMs));
+} else if (commandName === "rollback-list") {
+  print(await enqueue({ ...baseCommand, type: "canvas.rollbackList" }, timeoutMs));
+} else if (commandName === "rollback") {
+  const rollbackId = args.shift();
+  print(await enqueue({ ...baseCommand, type: "canvas.rollback", rollbackId }, timeoutMs));
 } else if (commandName === "capabilities") {
   print(await enqueue({ ...baseCommand, type: "canvas.capabilities" }, timeoutMs));
 } else if (commandName === "find-elements") {
@@ -160,28 +176,31 @@ if (commandName === "health") {
   print(await enqueue({ ...baseCommand, type: "canvas.getConnections", nodeId, direction, depth }, timeoutMs));
 } else if (commandName === "create-text-workflow") {
   const config = configOption();
-  print(await enqueue({ ...baseCommand, type: "canvas.createTextWorkflow", config }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.createTextWorkflow", config, dryRun }, timeoutMs));
 } else if (commandName === "create-text-node") {
   const config = configOption();
-  print(await enqueue({ ...baseCommand, type: "canvas.createTextNode", config }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.createTextNode", config, dryRun }, timeoutMs));
+} else if (commandName === "create-node") {
+  const config = configOption();
+  print(await enqueue({ ...baseCommand, type: "canvas.createNode", config, dryRun }, timeoutMs));
 } else if (commandName === "connect-nodes") {
   const source = args.shift();
   const target = args.shift();
   if (!source) fail("Missing sourceId");
   if (!target) fail("Missing targetId");
-  print(await enqueue({ ...baseCommand, type: "canvas.connectNodes", source, target }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.connectNodes", source, target, dryRun }, timeoutMs));
 } else if (commandName === "update-node") {
   const nodeId = args.shift();
   if (!nodeId) fail("Missing nodeId");
   const patch = jsonOption("--patch-json");
   const data = jsonOption("--data-json", undefined);
-  print(await enqueue({ ...baseCommand, type: "canvas.updateNode", nodeId, patch, data, title }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNode", nodeId, patch, data, title, dryRun }, timeoutMs));
 } else if (commandName === "update-node-text") {
   const nodeId = args.shift();
   const text = args.shift();
   if (!nodeId) fail("Missing nodeId");
   if (text === undefined) fail("Missing text");
-  print(await enqueue({ ...baseCommand, type: "canvas.updateNodeText", nodeId, text, title }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNodeText", nodeId, text, title, dryRun }, timeoutMs));
 } else if (commandName === "move-node") {
   const nodeId = args.shift();
   const x = args.shift();
@@ -189,16 +208,16 @@ if (commandName === "health") {
   if (!nodeId) fail("Missing nodeId");
   if (x === undefined) fail("Missing x");
   if (y === undefined) fail("Missing y");
-  print(await enqueue({ ...baseCommand, type: "canvas.updateNodePosition", nodeId, x, y }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNodePosition", nodeId, x, y, dryRun }, timeoutMs));
 } else if (commandName === "move-nodes") {
   const positions = jsonOption("--positions-json", {});
   const ids = args.splice(0);
   if (!ids.length) fail("Missing id");
-  print(await enqueue({ ...baseCommand, type: "canvas.moveNodes", ids, dx, dy, positions }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.moveNodes", ids, dx, dy, positions, dryRun }, timeoutMs));
 } else if (commandName === "delete-elements") {
   const ids = args.splice(0);
   if (!ids.length) fail("Missing id");
-  print(await enqueue({ ...baseCommand, type: "canvas.deleteElements", ids }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.deleteElements", ids, dryRun }, timeoutMs));
 } else if (commandName === "get-canvas-detail") {
   const canvasId = args.shift();
   if (!canvasId) fail("Missing canvasId");

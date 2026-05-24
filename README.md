@@ -91,12 +91,15 @@ When no `--client` is passed, the server routes commands to the most recently ac
 - `npm run bridge -- events`: list recent bridge events.
 - `npm run bridge -- snapshot`: return a DOM-level graph snapshot from the live canvas page.
 - `npm run bridge -- yjs-snapshot`: return the canonical Yjs canvas nodes and edges.
+- `npm run bridge -- rollback-list`: list recent rollback points created by mutating commands.
+- `npm run bridge -- rollback [rollbackId]`: restore the latest or selected rollback point.
 - `npm run bridge -- capabilities`: return supported bridge commands and parameter notes.
 - `npm run bridge -- find-elements --query-json '<json>'`: find nodes and edges by id, type, text/title query, or position bounds.
 - `npm run bridge -- get-element <id>`: return one node or edge by id.
 - `npm run bridge -- connections <nodeId> --direction <both|upstream|downstream> --depth <n>`: return connected nodes and edges.
 - `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
 - `npm run bridge -- create-text-node --config-json '<json>'`: create one `rh-text` node.
+- `npm run bridge -- create-node --config-json '<json>'`: create one generic canvas node from a node template, type, position, and data.
 - `npm run bridge -- connect-nodes <sourceId> <targetId>`: create one edge between two nodes.
 - `npm run bridge -- update-node <nodeId> --patch-json '<json>' --data-json '<json>'`: update node fields such as position, data, style, zIndex, width, and height.
 - `npm run bridge -- update-node-text <nodeId> <text> --title '<title>'`: update a text node through the canvas Yjs room.
@@ -110,6 +113,8 @@ When no `--client` is passed, the server routes commands to the most recently ac
 For endpoints whose body shape changes, override the wrapper default with `--body-json`. Example:
 
 `npm run bridge -- get-canvas-detail 2058411776657580034 --body-json '{"id":"2058411776657580034"}'`
+
+Mutating commands support `--dry-run`. A dry run executes the mutation on an offline Yjs copy and returns the diff without changing the live canvas. Real mutating commands return a `rollbackId` and before/after diff; use `rollback` to restore a previous point.
 
 ## Security Notes
 

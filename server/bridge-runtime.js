@@ -186,6 +186,138 @@
     return Array.isArray(array.toJSON?.()) ? array.toJSON() : [];
   };
 
+  const rollbackStack = [];
+
+  const canvasSnapshotFromContext = ({ nodes, edges, canvasId }) => ({
+    canvasId,
+    nodes: yArrayToJson(nodes),
+    edges: yArrayToJson(edges)
+  });
+
+  const diffById = (beforeItems, afterItems) => {
+    const before = new Map(beforeItems.map((item) => [item?.id, item]).filter(([id]) => id));
+    const after = new Map(afterItems.map((item) => [item?.id, item]).filter(([id]) => id));
+    const added = [];
+    const removed = [];
+    const updated = [];
+
+    for (const [id, item] of after.entries()) {
+      if (!before.has(id)) {
+        added.push(id);
+        continue;
+      }
+      const beforeJson = JSON.stringify(before.get(id));
+      const afterJson = JSON.stringify(item);
+      if (beforeJson !== afterJson) {
+        updated.push({ id, before: before.get(id), after: item });
+      }
+    }
+    for (const id of before.keys()) {
+      if (!after.has(id)) removed.push(id);
+    }
+    return {
+      added,
+      removed,
+      updated,
+      counts: { added: added.length, removed: removed.length, updated: updated.length }
+    };
+  };
+
+  const diffCanvasSnapshots = (before, after) => ({
+    nodes: diffById(before.nodes || [], after.nodes || []),
+    edges: diffById(before.edges || [], after.edges || []),
+    before: { nodes: before.nodes?.length || 0, edges: before.edges?.length || 0 },
+    after: { nodes: after.nodes?.length || 0, edges: after.edges?.length || 0 }
+  });
+
+  const makePreviewContext = (Y, snapshot) => {
+    const doc = new Y.Doc();
+    const root = doc.getMap("canvas");
+    const content = new Y.Map();
+    const nodes = new Y.Array();
+    const edges = new Y.Array();
+    nodes.push((snapshot.nodes || []).map((node) => toYValue(Y, node)));
+    edges.push((snapshot.edges || []).map((edge) => toYValue(Y, edge)));
+    content.set("type", "canvas");
+    content.set("nodes", nodes);
+    content.set("edges", edges);
+    root.set("canvas_content", content);
+    return { Y, doc, root, content, nodes, edges, canvasId: snapshot.canvasId, preview: true };
+  };
+
+  const rememberRollback = ({ command, before, after, diff }) => {
+    const rollbackId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    rollbackStack.unshift({
+      rollbackId,
+      commandId: command.id,
+      commandType: command.type,
+      href: location.href,
+      ts: Date.now(),
+      before,
+      after,
+      diff
+    });
+    if (rollbackStack.length > 20) rollbackStack.splice(20);
+    return rollbackId;
+  };
+
+  const withCanvasMutation = async (command, mutate) =>
+    withCanvasYjs(async (ctx) => {
+      const before = canvasSnapshotFromContext(ctx);
+      if (command.dryRun) {
+        const preview = makePreviewContext(ctx.Y, before);
+        let value;
+        try {
+          value = await mutate(preview);
+          const after = canvasSnapshotFromContext(preview);
+          return {
+            dryRun: true,
+            applied: false,
+            result: value,
+            diff: diffCanvasSnapshots(before, after)
+          };
+        } finally {
+          preview.doc.destroy();
+        }
+      }
+
+      const value = await mutate(ctx);
+      const after = canvasSnapshotFromContext(ctx);
+      const diff = diffCanvasSnapshots(before, after);
+      const rollbackId = rememberRollback({ command, before, after, diff });
+      return {
+        dryRun: false,
+        applied: true,
+        rollbackId,
+        result: value,
+        diff
+      };
+    });
+
+  const replaceCanvasSnapshot = async ({ snapshot } = {}) => {
+    if (!snapshot || !Array.isArray(snapshot.nodes) || !Array.isArray(snapshot.edges)) {
+      throw new Error("snapshot with nodes and edges is required");
+    }
+    return withCanvasYjs(({ Y, doc, nodes, edges, canvasId }) => {
+      const before = { canvasId, nodes: yArrayToJson(nodes), edges: yArrayToJson(edges) };
+      doc.transact(() => {
+        if (edges.length) edges.delete(0, edges.length);
+        if (nodes.length) nodes.delete(0, nodes.length);
+        nodes.push(snapshot.nodes.map((node) => toYValue(Y, node)));
+        edges.push(snapshot.edges.map((edge) => toYValue(Y, edge)));
+      });
+      const after = { canvasId, nodes: yArrayToJson(nodes), edges: yArrayToJson(edges) };
+      return { applied: true, diff: diffCanvasSnapshots(before, after) };
+    });
+  };
+
+  const rollbackCanvas = async ({ rollbackId } = {}) => {
+    const entry = rollbackId ? rollbackStack.find((item) => item.rollbackId === rollbackId) : rollbackStack[0];
+    if (!entry) throw new Error(rollbackId ? `Rollback not found: ${rollbackId}` : "No rollback entry available");
+    const result = await replaceCanvasSnapshot({ snapshot: entry.before });
+    return { rollbackId: entry.rollbackId, commandId: entry.commandId, commandType: entry.commandType, ...result };
+  };
+
   const COMMAND_CAPABILITIES = [
     {
       type: "graph.snapshot",
@@ -194,6 +326,18 @@
     {
       type: "canvas.yjsSnapshot",
       description: "Read canonical Yjs canvas nodes and edges."
+    },
+    {
+      type: "canvas.rollbackList",
+      description: "List recent rollback points created by mutating commands."
+    },
+    {
+      type: "canvas.rollback",
+      description: "Restore the canvas to a previous rollback point. Uses the latest point by default."
+    },
+    {
+      type: "canvas.restoreSnapshot",
+      description: "Restore nodes and edges from an explicit snapshot."
     },
     {
       type: "canvas.findElements",
@@ -217,35 +361,39 @@
     },
     {
       type: "canvas.createTextNode",
-      description: "Create one rh-text node."
+      description: "Create one rh-text node. Supports dryRun."
+    },
+    {
+      type: "canvas.createNode",
+      description: "Create one generic canvas node from a provided node template, type, position, and data. Supports dryRun."
     },
     {
       type: "canvas.createTextWorkflow",
-      description: "Create a minimal two-node text workflow with one group and one edge."
+      description: "Create a minimal two-node text workflow with one group and one edge. Supports dryRun."
     },
     {
       type: "canvas.connectNodes",
-      description: "Create an edge between two existing nodes."
+      description: "Create an edge between two existing nodes. Supports dryRun."
     },
     {
       type: "canvas.updateNode",
-      description: "Update a node's position, data, style, zIndex, dimensions, title, or text."
+      description: "Update a node's position, data, style, zIndex, dimensions, title, or text. Supports dryRun."
     },
     {
       type: "canvas.updateNodePosition",
-      description: "Move one node to an absolute x/y position."
+      description: "Move one node to an absolute x/y position. Supports dryRun."
     },
     {
       type: "canvas.moveNodes",
-      description: "Move multiple nodes by delta or explicit positions."
+      description: "Move multiple nodes by delta or explicit positions. Supports dryRun."
     },
     {
       type: "canvas.updateNodeText",
-      description: "Update a text node's data.text and optional data.title."
+      description: "Update a text node's data.text and optional data.title. Supports dryRun."
     },
     {
       type: "canvas.deleteElements",
-      description: "Delete nodes, groups, and edges by id. Edges connected to deleted nodes are removed too."
+      description: "Delete nodes, groups, and edges by id. Edges connected to deleted nodes are removed too. Supports dryRun."
     },
     {
       type: "canvas.getDetail",
@@ -384,8 +532,8 @@
     return { ...(target || {}), ...patch };
   };
 
-  const createTextWorkflow = async (config = {}) =>
-    withCanvasYjs(({ Y, doc, nodes, edges }) => {
+  const createTextWorkflow = async (config = {}, command = {}) =>
+    withCanvasMutation(command, ({ Y, doc, nodes, edges, canvasId }) => {
       const currentNodes = yArrayToJson(nodes);
       const currentEdges = yArrayToJson(edges);
       const timestamp = Date.now();
@@ -491,15 +639,15 @@
       });
 
       return {
-        canvasId: location.pathname.split("/").filter(Boolean).pop(),
+        canvasId,
         added: { nodes: [sourceId, targetId, groupId], edges: [edgeId] },
         before: { nodes: currentNodes.length, edges: currentEdges.length },
         after: { nodes: currentNodes.length + 3, edges: currentEdges.length + 1 }
       };
     });
 
-  const createTextNode = async (config = {}) =>
-    withCanvasYjs(({ Y, doc, nodes }) => {
+  const createTextNode = async (config = {}, command = {}) =>
+    withCanvasMutation(command, ({ Y, doc, nodes }) => {
       const currentNodes = yArrayToJson(nodes);
       const timestamp = Date.now();
       const suffix = Math.random().toString(36).slice(2, 10);
@@ -534,14 +682,43 @@
       return { nodeId, node };
     });
 
-  const connectNodes = async ({ source, target, sourceHandle = "output", targetHandle = "input", id } = {}) => {
+  const createNode = async (config = {}, command = {}) =>
+    withCanvasMutation(command, ({ Y, doc, nodes }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const timestamp = Date.now();
+      const suffix = Math.random().toString(36).slice(2, 10);
+      const template = config.node && typeof config.node === "object" ? config.node : {};
+      const nodeId = config.id || template.id || `node-${timestamp}-${suffix}`;
+      const maxX = currentNodes.reduce((max, node) => Math.max(max, Number(node?.position?.x) || 0), 0);
+      const node = {
+        ...template,
+        id: nodeId,
+        type: config.type || template.type || "rh-text",
+        position: {
+          x: Number(config.x ?? template.position?.x ?? Math.max(300, maxX + 360)),
+          y: Number(config.y ?? template.position?.y ?? 300)
+        },
+        zIndex: Number(config.zIndex ?? template.zIndex ?? currentNodes.length + 1),
+        style: template.style || config.style || {},
+        selectable: config.selectable ?? template.selectable ?? true,
+        data: {
+          ...(template.data || {}),
+          ...(config.data || {})
+        }
+      };
+      if (config.position) node.position = { ...node.position, ...config.position };
+      doc.transact(() => nodes.push([toYValue(Y, node)]));
+      return { nodeId, node };
+    });
+
+  const connectNodes = async ({ source, target, sourceHandle = "output", targetHandle = "input", edgeId: requestedEdgeId, id: commandId, ...command } = {}) => {
     if (!source) throw new Error("source is required");
     if (!target) throw new Error("target is required");
-    return withCanvasYjs(({ Y, doc, nodes, edges }) => {
+    return withCanvasMutation({ type: "canvas.connectNodes", id: commandId, ...command }, ({ Y, doc, nodes, edges }) => {
       const nodeIds = new Set(yArrayToJson(nodes).map((node) => node?.id).filter(Boolean));
       if (!nodeIds.has(source)) throw new Error(`Source node not found: ${source}`);
       if (!nodeIds.has(target)) throw new Error(`Target node not found: ${target}`);
-      const edgeId = id || `e-${source}-${target}`;
+      const edgeId = requestedEdgeId || `e-${source}-${target}`;
       const existing = yArrayToJson(edges).some((edge) => edge?.id === edgeId);
       if (existing) return { edgeId, created: false };
       const edge = { id: edgeId, source, target, sourceHandle, targetHandle, type: "default", animated: false };
@@ -550,9 +727,9 @@
     });
   };
 
-  const updateNodePosition = async ({ nodeId, x, y } = {}) => {
+  const updateNodePosition = async ({ nodeId, x, y, ...command } = {}) => {
     if (!nodeId) throw new Error("nodeId is required");
-    return withCanvasYjs(({ Y, doc, nodes }) => {
+    return withCanvasMutation({ type: "canvas.updateNodePosition", ...command }, ({ Y, doc, nodes }) => {
       let updated = false;
       doc.transact(() => {
         for (let index = 0; index < nodes.length; index++) {
@@ -584,9 +761,9 @@
     });
   };
 
-  const updateNodeText = async ({ nodeId, text, title } = {}) => {
+  const updateNodeText = async ({ nodeId, text, title, ...command } = {}) => {
     if (!nodeId) throw new Error("nodeId is required");
-    return withCanvasYjs(({ Y, doc, nodes }) => {
+    return withCanvasMutation({ type: "canvas.updateNodeText", ...command }, ({ Y, doc, nodes }) => {
       let updated = false;
       doc.transact(() => {
         for (let index = 0; index < nodes.length; index++) {
@@ -618,10 +795,10 @@
     });
   };
 
-  const updateNode = async ({ nodeId, id, patch = {}, position, data, style, title, text, zIndex, width, height } = {}) => {
+  const updateNode = async ({ nodeId, id, patch = {}, position, data, style, title, text, zIndex, width, height, ...command } = {}) => {
     const targetId = nodeId || id;
     if (!targetId) throw new Error("nodeId is required");
-    return withCanvasYjs(({ Y, doc, nodes }) => {
+    return withCanvasMutation({ type: "canvas.updateNode", ...command }, ({ Y, doc, nodes }) => {
       let updatedNode;
       doc.transact(() => {
         for (let index = 0; index < nodes.length; index++) {
@@ -659,13 +836,13 @@
     });
   };
 
-  const moveNodes = async ({ nodeIds = [], ids = [], dx = 0, dy = 0, positions = {} } = {}) => {
+  const moveNodes = async ({ nodeIds = [], ids = [], dx = 0, dy = 0, positions = {}, ...command } = {}) => {
     const targetIds = [...nodeIds, ...ids].filter(Boolean);
     if (!targetIds.length) throw new Error("nodeIds or ids is required");
     const targetSet = new Set(targetIds);
     const deltaX = Number(dx) || 0;
     const deltaY = Number(dy) || 0;
-    return withCanvasYjs(({ Y, doc, nodes }) => {
+    return withCanvasMutation({ type: "canvas.moveNodes", ...command }, ({ Y, doc, nodes }) => {
       const moved = [];
       doc.transact(() => {
         for (let index = 0; index < nodes.length; index++) {
@@ -693,8 +870,8 @@
     });
   };
 
-  const deleteElements = async ({ ids = [], nodeIds = [], edgeIds = [] } = {}) =>
-    withCanvasYjs(({ nodes, edges }) => {
+  const deleteElements = async ({ ids = [], nodeIds = [], edgeIds = [], ...command } = {}) =>
+    withCanvasMutation({ type: "canvas.deleteElements", ...command }, ({ nodes, edges }) => {
       const nodeSet = new Set([...ids, ...nodeIds].filter(Boolean));
       const edgeSet = new Set([...ids, ...edgeIds].filter(Boolean));
       let deletedNodes = 0;
@@ -732,6 +909,16 @@
           nodes: yArrayToJson(nodes),
           edges: yArrayToJson(edges)
         }));
+      } else if (command.type === "canvas.rollbackList") {
+        result = rollbackStack.map(({ before, after, ...entry }) => ({
+          ...entry,
+          before: { nodes: before.nodes.length, edges: before.edges.length },
+          after: { nodes: after.nodes.length, edges: after.edges.length }
+        }));
+      } else if (command.type === "canvas.rollback") {
+        result = await rollbackCanvas(command);
+      } else if (command.type === "canvas.restoreSnapshot") {
+        result = await replaceCanvasSnapshot(command);
       } else if (command.type === "canvas.capabilities") {
         result = canvasCapabilities();
       } else if (command.type === "canvas.findElements") {
@@ -741,9 +928,11 @@
       } else if (command.type === "canvas.getConnections") {
         result = await getConnections(command);
       } else if (command.type === "canvas.createTextWorkflow") {
-        result = await createTextWorkflow(command.config || {});
+        result = await createTextWorkflow(command.config || {}, command);
       } else if (command.type === "canvas.createTextNode") {
-        result = await createTextNode(command.config || {});
+        result = await createTextNode(command.config || {}, command);
+      } else if (command.type === "canvas.createNode") {
+        result = await createNode(command.config || {}, command);
       } else if (command.type === "canvas.connectNodes") {
         result = await connectNodes(command);
       } else if (command.type === "canvas.updateNode") {
