@@ -20,19 +20,23 @@
 
 5. Confirm `bridge.installed` appears:
 
-   `curl http://127.0.0.1:8765/events`
+   `npm run bridge -- events`
 
 6. Confirm command round trip:
 
-   `curl -X POST http://127.0.0.1:8765/command -H 'Content-Type: application/json' -d '{"type":"graph.snapshot"}'`
+   `npm run bridge -- snapshot`
 
 ## First API Experiments
 
-Use the `api.post` command from Codex/local shell so the request runs inside the page context.
+Use the CLI wrappers first. Fall back to `api-post` when an endpoint needs a custom body.
 
 Recommended first target:
 
 - `/canvas/getCanvasDetail`
+
+CLI wrapper:
+
+- `npm run bridge -- get-canvas-detail <canvasId>`
 
 Goal:
 
@@ -43,6 +47,10 @@ Goal:
 Recommended second target:
 
 - `/canvas/workflow/list`
+
+CLI wrapper:
+
+- `npm run bridge -- workflow-list <canvasId>`
 
 Goal:
 
@@ -67,6 +75,11 @@ Deliverables:
 - stable `getCanvasDetail` command wrapper
 - documented response schema
 
+Status:
+
+- Done.
+- `yjs-snapshot` reads canonical canvas nodes and edges from the live Yjs room.
+
 ## Milestone 2
 
 Codex can create a two-node text workflow and one edge through API/tool-level calls.
@@ -77,6 +90,13 @@ Deliverables:
 - persisted canvas update after refresh
 - no model generation
 - no RH coin consumption
+
+Status:
+
+- Done for basic text workflows.
+- `create-text-workflow` creates two `rh-text` nodes, one group, and one edge through `/canvas/ws/<canvasId>`.
+- `update-node-text` updates existing text nodes.
+- `delete-elements` removes nodes, groups, and edges by id.
 
 ## Milestone 3
 
@@ -113,4 +133,3 @@ MCP server, because the eventual target is direct Agent tool use rather than man
 - `page.eval` is powerful and should never be exposed remotely.
 - Streaming Agent responses may need careful SSE parsing.
 - Direct workflow save may need frontend-generated layout/group metadata, not just logical nodes and edges.
-

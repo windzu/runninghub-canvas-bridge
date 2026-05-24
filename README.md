@@ -22,10 +22,11 @@ Implemented:
 - Command channel from Codex/local scripts back into the page.
 - Basic DOM graph snapshot command.
 - Page-context API POST command that uses the browser session without exporting cookies.
+- Local CLI for health checks, event inspection, graph snapshots, and first canvas API wrappers.
+- Yjs/Nexus canvas commands for reading, creating, updating, and deleting basic text workflows.
 
 Not implemented yet:
 
-- Stable CLI client.
 - Typed RunningHub API models.
 - Direct workflow save/create wrapper.
 - MCP server packaging for Codex.
@@ -60,21 +61,47 @@ Not implemented yet:
 
 5. Check whether the bridge is connected:
 
-   `curl http://127.0.0.1:8765/events`
+   `npm run bridge -- events`
 
 6. Send a basic graph snapshot command:
 
-   `curl -X POST http://127.0.0.1:8765/command -H 'Content-Type: application/json' -d '{"type":"graph.snapshot"}'`
+   `npm run bridge -- snapshot`
 
-7. Read the result:
+7. Read canvas details through the page context:
 
-   `curl http://127.0.0.1:8765/events`
+   `npm run bridge -- get-canvas-detail 2058411776657580034`
+
+8. Read workflow list through the page context:
+
+   `npm run bridge -- workflow-list 2058411776657580034`
+
+The CLI waits for command results by default. If multiple RunningHub tabs are open, use the `clientId` shown in `events`:
+
+`npm run bridge -- snapshot --client <clientId>`
+
+## CLI Commands
+
+- `npm run bridge -- health`: check local bridge server state.
+- `npm run bridge -- events`: list recent bridge events.
+- `npm run bridge -- snapshot`: return a DOM-level graph snapshot from the live canvas page.
+- `npm run bridge -- yjs-snapshot`: return the canonical Yjs canvas nodes and edges.
+- `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
+- `npm run bridge -- update-node-text <nodeId> <text> --title '<title>'`: update a text node through the canvas Yjs room.
+- `npm run bridge -- delete-elements <id...>`: delete nodes, groups, and edges by id through the canvas Yjs room.
+- `npm run bridge -- get-canvas-detail <canvasId>`: call `/canvas/getCanvasDetail` inside the logged-in page context.
+- `npm run bridge -- workflow-list <canvasId>`: call `/canvas/workflow/list` inside the logged-in page context.
+- `npm run bridge -- api-post <endpoint> --body-json '<json>'`: run an arbitrary POST inside the page context.
+
+For endpoints whose body shape changes, override the wrapper default with `--body-json`. Example:
+
+`npm run bridge -- get-canvas-detail 2058411776657580034 --body-json '{"id":"2058411776657580034"}'`
 
 ## Security Notes
 
 - The extension runs in the page main world and can call RunningHub APIs as the logged-in user.
 - The bridge is bound to `127.0.0.1` only.
 - Request headers containing `authorization`, `token`, or `cookie` are redacted before being posted to the local bridge.
+- WebSocket URLs are redacted before being posted to the local bridge.
 - The `page.eval` command is intentionally powerful and should remain local-only.
 - Do not publish captured request bodies if they contain private project data.
 
@@ -88,4 +115,3 @@ RunningHub's built-in Agent appears to work in two stages:
 4. Those tools mutate the Vue Flow canvas state and persist it through canvas/workflow APIs.
 
 This bridge tries to expose the same layer to external agents. It is not trying to replace the browser UI with clicks.
-

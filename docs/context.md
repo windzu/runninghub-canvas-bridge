@@ -180,8 +180,16 @@ This project needs a higher-permission integration point:
 - Polls `http://127.0.0.1:8765/commands`.
 - Supports commands:
   - `graph.snapshot`
+  - `canvas.exportWorkflow`
+  - `canvas.yjsSnapshot`
+  - `canvas.createTextWorkflow`
+  - `canvas.updateNodeText`
+  - `canvas.deleteElements`
+  - `canvas.getDetail`
+  - `canvas.workflowList`
   - `api.post`
   - `page.eval`
+- Captures WebSocket open/status events with token-bearing query params redacted.
 
 `server/server.mjs`:
 
@@ -189,4 +197,3 @@ This project needs a higher-permission integration point:
 - Stores recent events in memory.
 - Queues commands in memory.
 - Stores command result events by command id.
-
