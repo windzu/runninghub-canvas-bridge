@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "RunningHub Canvas Bridge",
+  "version": "0.1.0",
+  "description": "Local bridge for inspecting and controlling RunningHub canvas pages.",
+  "permissions": [],
+  "host_permissions": [
+    "https://rhtv.runninghub.cn/*",
+    "http://127.0.0.1:8765/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://rhtv.runninghub.cn/*"],
+      "js": ["bridge-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}
