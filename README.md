@@ -86,7 +86,10 @@ The CLI waits for command results by default. If multiple RunningHub tabs are op
 - `npm run bridge -- snapshot`: return a DOM-level graph snapshot from the live canvas page.
 - `npm run bridge -- yjs-snapshot`: return the canonical Yjs canvas nodes and edges.
 - `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
+- `npm run bridge -- create-text-node --config-json '<json>'`: create one `rh-text` node.
+- `npm run bridge -- connect-nodes <sourceId> <targetId>`: create one edge between two nodes.
 - `npm run bridge -- update-node-text <nodeId> <text> --title '<title>'`: update a text node through the canvas Yjs room.
+- `npm run bridge -- move-node <nodeId> <x> <y>`: update a node position.
 - `npm run bridge -- delete-elements <id...>`: delete nodes, groups, and edges by id through the canvas Yjs room.
 - `npm run bridge -- get-canvas-detail <canvasId>`: call `/canvas/getCanvasDetail` inside the logged-in page context.
 - `npm run bridge -- workflow-list <canvasId>`: call `/canvas/workflow/list` inside the logged-in page context.

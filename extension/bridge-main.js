@@ -300,6 +300,92 @@
       };
     });
 
+  const createTextNode = async (config = {}) =>
+    withCanvasYjs(({ Y, doc, nodes }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const timestamp = Date.now();
+      const suffix = Math.random().toString(36).slice(2, 10);
+      const nodeId = config.id || `node-${timestamp}-${suffix}`;
+      const maxX = currentNodes.reduce((max, node) => Math.max(max, Number(node?.position?.x) || 0), 0);
+      const node = {
+        id: nodeId,
+        type: "rh-text",
+        position: {
+          x: Number(config.x) || Math.max(300, maxX + 360),
+          y: Number(config.y) || 300
+        },
+        zIndex: currentNodes.length + 1,
+        style: {},
+        selectable: true,
+        data: {
+          params: { prompt: "" },
+          modelCode: "text-text-rhart-text-g-3-flash-preview",
+          generateNum: 1,
+          subType: "text-text",
+          textModelListType: "text-text",
+          title: config.title || "API 文本节点",
+          agentCreated: true,
+          from: "bridge",
+          agentNodeType: config.agentNodeType || "copywriting",
+          status: "idle",
+          text: config.text || "API 写入：文本节点",
+          maxConnect: { image: null, text: null, video: null }
+        }
+      };
+      doc.transact(() => nodes.push([toYValue(Y, node)]));
+      return { nodeId, node };
+    });
+
+  const connectNodes = async ({ source, target, sourceHandle = "output", targetHandle = "input", id } = {}) => {
+    if (!source) throw new Error("source is required");
+    if (!target) throw new Error("target is required");
+    return withCanvasYjs(({ Y, doc, nodes, edges }) => {
+      const nodeIds = new Set(yArrayToJson(nodes).map((node) => node?.id).filter(Boolean));
+      if (!nodeIds.has(source)) throw new Error(`Source node not found: ${source}`);
+      if (!nodeIds.has(target)) throw new Error(`Target node not found: ${target}`);
+      const edgeId = id || `e-${source}-${target}`;
+      const existing = yArrayToJson(edges).some((edge) => edge?.id === edgeId);
+      if (existing) return { edgeId, created: false };
+      const edge = { id: edgeId, source, target, sourceHandle, targetHandle, type: "default", animated: false };
+      doc.transact(() => edges.push([toYValue(Y, edge)]));
+      return { edgeId, created: true, edge };
+    });
+  };
+
+  const updateNodePosition = async ({ nodeId, x, y } = {}) => {
+    if (!nodeId) throw new Error("nodeId is required");
+    return withCanvasYjs(({ Y, doc, nodes }) => {
+      let updated = false;
+      doc.transact(() => {
+        for (let index = 0; index < nodes.length; index++) {
+          const node = nodes.get(index);
+          const nodeJson = node?.toJSON?.() || node;
+          if (nodeJson?.id !== nodeId) continue;
+
+          if (node instanceof Y.Map) {
+            let position = node.get("position");
+            if (!(position instanceof Y.Map)) {
+              position = toYValue(Y, position || {});
+              node.set("position", position);
+            }
+            if (x !== undefined) position.set("x", Number(x));
+            if (y !== undefined) position.set("y", Number(y));
+          } else {
+            nodeJson.position ||= {};
+            if (x !== undefined) nodeJson.position.x = Number(x);
+            if (y !== undefined) nodeJson.position.y = Number(y);
+            nodes.delete(index, 1);
+            nodes.insert(index, [toYValue(Y, nodeJson)]);
+          }
+          updated = true;
+          break;
+        }
+      });
+      if (!updated) throw new Error(`Node not found: ${nodeId}`);
+      return { updated: true, nodeId, x: x === undefined ? undefined : Number(x), y: y === undefined ? undefined : Number(y) };
+    });
+  };
+
   const updateNodeText = async ({ nodeId, text, title } = {}) => {
     if (!nodeId) throw new Error("nodeId is required");
     return withCanvasYjs(({ Y, doc, nodes }) => {
@@ -375,6 +461,12 @@
         }));
       } else if (command.type === "canvas.createTextWorkflow") {
         result = await createTextWorkflow(command.config || {});
+      } else if (command.type === "canvas.createTextNode") {
+        result = await createTextNode(command.config || {});
+      } else if (command.type === "canvas.connectNodes") {
+        result = await connectNodes(command);
+      } else if (command.type === "canvas.updateNodePosition") {
+        result = await updateNodePosition(command);
       } else if (command.type === "canvas.updateNodeText") {
         result = await updateNodeText(command);
       } else if (command.type === "canvas.deleteElements") {
@@ -530,6 +622,9 @@
       "canvas.exportWorkflow",
       "canvas.yjsSnapshot",
       "canvas.createTextWorkflow",
+      "canvas.createTextNode",
+      "canvas.connectNodes",
+      "canvas.updateNodePosition",
       "canvas.updateNodeText",
       "canvas.deleteElements",
       "canvas.getDetail",

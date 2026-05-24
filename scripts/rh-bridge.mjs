@@ -11,7 +11,10 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs export-workflow [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs yjs-snapshot [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs create-text-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>]
+  node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>]
+  node scripts/rh-bridge.mjs connect-nodes <sourceId> <targetId> [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs update-node-text <nodeId> <text> [--client <clientId>] [--timeout <ms>] [--title <title>]
+  node scripts/rh-bridge.mjs move-node <nodeId> <x> <y> [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs delete-elements <id...> [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs get-canvas-detail <canvasId> [--timeout <ms>] [--body-json <json>]
   node scripts/rh-bridge.mjs workflow-list <canvasId> [--timeout <ms>] [--body-json <json>]
@@ -122,12 +125,29 @@ if (commandName === "health") {
 } else if (commandName === "create-text-workflow") {
   const config = configOption();
   print(await enqueue({ ...baseCommand, type: "canvas.createTextWorkflow", config }, timeoutMs));
+} else if (commandName === "create-text-node") {
+  const config = configOption();
+  print(await enqueue({ ...baseCommand, type: "canvas.createTextNode", config }, timeoutMs));
+} else if (commandName === "connect-nodes") {
+  const source = args.shift();
+  const target = args.shift();
+  if (!source) fail("Missing sourceId");
+  if (!target) fail("Missing targetId");
+  print(await enqueue({ ...baseCommand, type: "canvas.connectNodes", source, target }, timeoutMs));
 } else if (commandName === "update-node-text") {
   const nodeId = args.shift();
   const text = args.shift();
   if (!nodeId) fail("Missing nodeId");
   if (text === undefined) fail("Missing text");
   print(await enqueue({ ...baseCommand, type: "canvas.updateNodeText", nodeId, text, title }, timeoutMs));
+} else if (commandName === "move-node") {
+  const nodeId = args.shift();
+  const x = args.shift();
+  const y = args.shift();
+  if (!nodeId) fail("Missing nodeId");
+  if (x === undefined) fail("Missing x");
+  if (y === undefined) fail("Missing y");
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNodePosition", nodeId, x, y }, timeoutMs));
 } else if (commandName === "delete-elements") {
   const ids = args.splice(0);
   if (!ids.length) fail("Missing id");

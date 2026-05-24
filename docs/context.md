@@ -183,6 +183,9 @@ This project needs a higher-permission integration point:
   - `canvas.exportWorkflow`
   - `canvas.yjsSnapshot`
   - `canvas.createTextWorkflow`
+  - `canvas.createTextNode`
+  - `canvas.connectNodes`
+  - `canvas.updateNodePosition`
   - `canvas.updateNodeText`
   - `canvas.deleteElements`
   - `canvas.getDetail`
