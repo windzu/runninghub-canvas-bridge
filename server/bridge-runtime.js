@@ -1,10 +1,21 @@
 (() => {
-  if (window.__RUNNINGHUB_CANVAS_BRIDGE_INSTALLED__) return;
+  const RUNTIME_VERSION = window.__RUNNINGHUB_CANVAS_BRIDGE_EXPECTED_VERSION__ || "dev";
+  if (window.__RUNNINGHUB_CANVAS_BRIDGE_INSTALLED__) {
+    if (window.__RUNNINGHUB_CANVAS_BRIDGE_VERSION__ === RUNTIME_VERSION) return;
+    try {
+      window.__RUNNINGHUB_CANVAS_BRIDGE_CLEANUP__?.();
+    } catch {}
+  }
   window.__RUNNINGHUB_CANVAS_BRIDGE_INSTALLED__ = true;
+  window.__RUNNINGHUB_CANVAS_BRIDGE_VERSION__ = RUNTIME_VERSION;
 
   const BRIDGE = "http://127.0.0.1:8765";
   const CLIENT_ID = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   let seq = 0;
+  let pollTimer;
+  let originalFetch;
+  let OriginalXHR;
+  let OriginalWebSocket;
 
   const safeJson = (value) => {
     try {
@@ -12,6 +23,18 @@
     } catch {
       return String(value);
     }
+  };
+
+  const errorCodeFromError = (error) => {
+    const message = String(error?.message || error || "");
+    if (/Node not found|Element not found/i.test(message)) return "NODE_NOT_FOUND";
+    if (/Rendered node not found/i.test(message)) return "NO_RENDERED_NODE";
+    if (/No image input accepted file/i.test(message)) return "UPLOAD_INPUT_NOT_FOUND";
+    if (/Timed out/i.test(message)) return "TIMEOUT";
+    if (/validation failed|VALIDATION_FAILED/i.test(message)) return "VALIDATION_FAILED";
+    if (/sourceUrl is required|url is required/i.test(message)) return "MISSING_REQUIRED_FIELD";
+    if (/Rh-Accesstoken/i.test(message)) return "AUTH_TOKEN_NOT_FOUND";
+    return "COMMAND_FAILED";
   };
 
   const shouldCapture = (url) =>
@@ -47,6 +70,8 @@
       ts: Date.now(),
       href: location.href,
       title: document.title,
+      runtimeVersion: RUNTIME_VERSION,
+      runtimeCommands: window.__RUNNINGHUB_CANVAS_BRIDGE__?.commands,
       ...event
     };
     fetch(`${BRIDGE}/events`, {
@@ -95,6 +120,29 @@
       ok: response.ok,
       status: response.status,
       text: text.slice(0, maxChars || 120000)
+    };
+  };
+
+  const parseJsonText = (text) => {
+    try {
+      return text ? JSON.parse(text) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const taskInfoFromRunResponse = (response) => {
+    const body = parseJsonText(response?.text);
+    return {
+      ok: Boolean(response?.ok && body?.code === 0),
+      httpStatus: response?.status,
+      code: body?.code,
+      msg: body?.msg,
+      taskId: body?.data?.taskId,
+      status: body?.data?.status,
+      nodeCount: body?.data?.nodeCount,
+      targetType: body?.data?.targetType,
+      targetName: body?.data?.targetName
     };
   };
 
@@ -328,6 +376,10 @@
       description: "Read canonical Yjs canvas nodes and edges."
     },
     {
+      type: "canvas.summary",
+      description: "Return a compact Agent-oriented canvas summary with node status, media URLs, and connection counts."
+    },
+    {
       type: "canvas.rollbackList",
       description: "List recent rollback points created by mutating commands."
     },
@@ -378,6 +430,50 @@
     {
       type: "canvas.createImageNode",
       description: "Create one RunningHub native text-to-image rh-image node. Supports dryRun."
+    },
+    {
+      type: "canvas.createReferenceImageNode",
+      description: "Create one uploaded/reference rh-image node with sourceObjects and optionally connect it to a target node. Supports dryRun."
+    },
+    {
+      type: "canvas.createReferenceFromUrl",
+      description: "Create a directly usable reference image node from an existing image URL and return primaryReference."
+    },
+    {
+      type: "canvas.uploadReferenceImage",
+      description: "Inject a local image file payload into the selected/target RunningHub image input so the page uploads it and creates the native reference image node."
+    },
+    {
+      type: "canvas.uploadLocalReferenceImage",
+      description: "Agent-friendly one-shot local image upload: create a staging image node, inject the file, and return directly usable reference nodes and URLs."
+    },
+    {
+      type: "canvas.runNode",
+      description: "Call /canvas/task/run for one node using its upstream connected subgraph."
+    },
+    {
+      type: "canvas.pollNodeResult",
+      description: "Poll one canvas node until it has outputs or reaches a terminal status."
+    },
+    {
+      type: "canvas.pollTaskResult",
+      description: "Poll the canvas for outputs matching a RunningHub taskId."
+    },
+    {
+      type: "canvas.prepareVideoNode",
+      description: "Agent-friendly video preparation: collect upstream text and image outputs into effective rh-video params without generating."
+    },
+    {
+      type: "canvas.validateVideoRun",
+      description: "Validate that an rh-video node has effective prompt, multimodal model settings, imageUrls, and matching upstream image edges before paid generation."
+    },
+    {
+      type: "canvas.validateNodeRun",
+      description: "Generic pre-run validation for text, image, and video nodes."
+    },
+    {
+      type: "canvas.generateVideoNode",
+      description: "Safe high-level video generation: prepare upstream text/image inputs, validate references, then run the video node."
     },
     {
       type: "canvas.inspectModelOptions",
@@ -488,6 +584,21 @@
         webSearch: "boolean"
       },
       observedModels: ["Seedance2.0"]
+    },
+    "multimodal-video": {
+      nodeType: "rh-video",
+      defaultModelCode: "multimodal-video-sparkvideo-2.0-multimodal-video",
+      defaultRunningHubModelName: "Seedance2.0",
+      params: {
+        prompt: "string",
+        imageUrls: "string[]",
+        conversionSlots: "string[]",
+        resolution: "observed default 720p",
+        duration: "observed default 5",
+        generateAudio: "boolean",
+        ratio: "string|null"
+      },
+      observedModels: ["Seedance2.0"]
     }
   };
 
@@ -537,7 +648,13 @@
     }
   };
 
-  const normalizeModelName = (value) => String(value || "").trim().toLowerCase();
+  const normalizeModelName = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[-_]+/g, " ")
+      .replace(/([a-z])(\d)/g, "$1 $2")
+      .replace(/\s+/g, " ");
 
   const resolveModelAlias = ({ modelName, modelCode, subType } = {}) => {
     const alias = MODEL_ALIASES[normalizeModelName(modelName)];
@@ -614,6 +731,52 @@
     href: location.href,
     commands: COMMAND_CAPABILITIES
   });
+
+  const summarizeCanvas = async ({ includeUrls = true, includeTextPreview = true } = {}) =>
+    withCanvasYjs(({ nodes, edges, canvasId }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const currentEdges = yArrayToJson(edges);
+      const upstreamCounts = new Map();
+      const downstreamCounts = new Map();
+      for (const edge of currentEdges) {
+        if (edge?.target) upstreamCounts.set(edge.target, (upstreamCounts.get(edge.target) || 0) + 1);
+        if (edge?.source) downstreamCounts.set(edge.source, (downstreamCounts.get(edge.source) || 0) + 1);
+      }
+      const nodeSummaries = currentNodes.map((node) => {
+        const outputs = outputUrlsFromNode(node);
+        const sourceUrls = imageUrlsFromNode(node);
+        return {
+          id: node.id,
+          type: node.type,
+          title: getNodeTitle(node),
+          subType: node.data?.subType,
+          modelCode: node.data?.modelCode,
+          status: node.data?.status,
+          taskId: node.data?.taskId || outputs.find((item) => item.taskId)?.taskId,
+          position: node.position,
+          upstream: upstreamCounts.get(node.id) || 0,
+          downstream: downstreamCounts.get(node.id) || 0,
+          outputCount: Array.isArray(node.data?.output) ? node.data.output.length : 0,
+          outputs: includeUrls ? outputs : undefined,
+          sourceUrls: includeUrls ? sourceUrls : undefined,
+          textPreview: includeTextPreview ? textFromNode(node).slice(0, 220) : undefined
+        };
+      });
+      const byType = {};
+      const byStatus = {};
+      for (const node of nodeSummaries) {
+        byType[node.type || "unknown"] = (byType[node.type || "unknown"] || 0) + 1;
+        byStatus[node.status || "unknown"] = (byStatus[node.status || "unknown"] || 0) + 1;
+      }
+      return {
+        ok: true,
+        canvasId,
+        counts: { nodes: currentNodes.length, edges: currentEdges.length, byType, byStatus },
+        nodes: nodeSummaries,
+        edges: currentEdges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, type: edge.type })),
+        nextActions: []
+      };
+    });
 
   const findElements = async (query = {}) =>
     withCanvasYjs(({ nodes, edges, canvasId }) => ({
@@ -721,6 +884,350 @@
         counts: { nodes: seenNodes.size, edges: seenEdges.size }
       };
     });
+  };
+
+  const collectUpstreamSubgraph = ({ targetId, nodes, edges, maxDepth = 8 }) => {
+    const nodeById = new Map(nodes.map((node) => [node?.id, node]).filter(([id]) => id));
+    const includedNodeIds = new Set([targetId]);
+    const includedEdgeIds = new Set();
+    let frontier = [targetId];
+
+    for (let level = 0; level < maxDepth; level++) {
+      const next = [];
+      for (const edge of edges) {
+        if (!frontier.includes(edge?.target)) continue;
+        if (edge?.id) includedEdgeIds.add(edge.id);
+        if (edge?.source && !includedNodeIds.has(edge.source)) {
+          includedNodeIds.add(edge.source);
+          next.push(edge.source);
+        }
+      }
+      frontier = next;
+      if (!frontier.length) break;
+    }
+
+    const orderedNodes = [targetId, ...[...includedNodeIds].filter((id) => id !== targetId)]
+      .map((id) => nodeById.get(id))
+      .filter(Boolean);
+    const includedEdges = edges.filter((edge) => includedEdgeIds.has(edge?.id));
+    return { nodes: orderedNodes, edges: includedEdges };
+  };
+
+  const firstPresentString = (...values) => values.find((value) => typeof value === "string" && value.trim())?.trim() || "";
+
+  const imageUrlsFromNode = (node) => {
+    const data = node?.data || {};
+    const urls = [];
+    for (const item of data.output || []) {
+      if (item?.success === false) continue;
+      if (item?.mediaCategory && item.mediaCategory !== "image") continue;
+      if (item?.url) urls.push(item.url);
+    }
+    for (const url of data.sourceObjects || []) {
+      if (typeof url === "string") urls.push(url);
+    }
+    for (const url of data.params?.imageUrls || []) {
+      if (typeof url === "string") urls.push(url);
+    }
+    return [...new Set(urls.filter(Boolean))];
+  };
+
+  const textFromNode = (node) => firstPresentString(node?.data?.text, node?.data?.params?.prompt);
+
+  const outputUrlsFromNode = (node) =>
+    (node?.data?.output || [])
+      .filter((item) => item?.success !== false && item?.url)
+      .map((item) => ({
+        url: item.url,
+        mediaCategory: item.mediaCategory,
+        outputType: item.outputType,
+        name: item.name,
+        taskId: item.taskId,
+        jobId: item.jobId
+      }));
+
+  const terminalNodeStatuses = new Set(["finished", "failed", "error", "cancelled", "canceled"]);
+
+  const summarizeNodeResult = (node) => ({
+    nodeId: node?.id,
+    type: node?.type,
+    title: node?.data?.title,
+    status: node?.data?.status,
+    taskId: node?.data?.taskId,
+    outputCount: Array.isArray(node?.data?.output) ? node.data.output.length : 0,
+    outputs: outputUrlsFromNode(node),
+    sourceUrls: imageUrlsFromNode(node),
+    hasTerminalStatus: terminalNodeStatuses.has(String(node?.data?.status || "").toLowerCase())
+  });
+
+  const directUpstreamNodes = ({ targetId, nodes, edges }) => {
+    const nodeById = new Map(nodes.map((node) => [node?.id, node]).filter(([id]) => id));
+    return edges
+      .filter((edge) => edge?.target === targetId)
+      .map((edge) => ({ edge, node: nodeById.get(edge?.source) }))
+      .filter((item) => item.node);
+  };
+
+  const videoRunValidation = ({ targetId, nodes, edges, requireReferences = true } = {}) => {
+    const target = nodes.find((node) => node?.id === targetId);
+    const errors = [];
+    if (!target) {
+      return { ok: false, errors: [`Node not found: ${targetId}`], targetId };
+    }
+    if (target.type !== "rh-video") errors.push(`Expected rh-video node, got ${target.type || "unknown"}`);
+
+    const params = target.data?.params || {};
+    const imageUrls = Array.isArray(params.imageUrls) ? params.imageUrls.filter(Boolean) : [];
+    const upstream = directUpstreamNodes({ targetId, nodes, edges });
+    const upstreamImages = upstream
+      .filter(({ node }) => node?.type === "rh-image")
+      .map(({ node, edge }) => ({ nodeId: node.id, edgeId: edge.id, urls: imageUrlsFromNode(node) }));
+    const upstreamImageUrls = new Set(upstreamImages.flatMap((item) => item.urls));
+    const missingUpstreamUrls = imageUrls.filter((url) => !upstreamImageUrls.has(url));
+    const prompt = firstPresentString(params.prompt);
+
+    if (!prompt) errors.push("Video prompt is empty");
+    if (requireReferences) {
+      if (target.data?.subType !== "multimodal-video") errors.push(`Expected subType multimodal-video, got ${target.data?.subType || "empty"}`);
+      if (!String(target.data?.modelCode || "").includes("multimodal-video")) {
+        errors.push(`Expected multimodal video modelCode, got ${target.data?.modelCode || "empty"}`);
+      }
+      if (!imageUrls.length) errors.push("params.imageUrls is empty");
+      if (!upstreamImages.length) errors.push("No direct upstream rh-image edges");
+      if (missingUpstreamUrls.length) errors.push(`imageUrls without matching direct upstream image output: ${missingUpstreamUrls.join(", ")}`);
+      if (!Array.isArray(params.conversionSlots) || !params.conversionSlots.length) errors.push("params.conversionSlots is empty");
+    }
+
+    return {
+      ok: errors.length === 0,
+      errors,
+      targetId,
+      modelCode: target.data?.modelCode,
+      subType: target.data?.subType,
+      promptChars: prompt.length,
+      references: imageUrls.map((url) => ({ url, hasDirectUpstreamImage: upstreamImageUrls.has(url) })),
+      upstreamImages,
+      upstreamTextNodes: upstream
+        .filter(({ node }) => node?.type === "rh-text")
+        .map(({ node, edge }) => ({ nodeId: node.id, edgeId: edge.id, chars: textFromNode(node).length }))
+    };
+  };
+
+  const validateNodeRunSnapshot = ({ targetId, nodes, edges, requireReferences = false } = {}) => {
+    const target = nodes.find((node) => node?.id === targetId);
+    const errors = [];
+    const warnings = [];
+    if (!target) {
+      return { ok: false, errorCode: "NODE_NOT_FOUND", errors: [`Node not found: ${targetId}`], warnings, targetId };
+    }
+
+    const params = target.data?.params || {};
+    const prompt = firstPresentString(target.data?.text, params.prompt);
+    const upstream = directUpstreamNodes({ targetId, nodes, edges });
+    const upstreamImages = upstream.filter(({ node }) => node?.type === "rh-image").map(({ node, edge }) => ({ nodeId: node.id, edgeId: edge.id, urls: imageUrlsFromNode(node) }));
+    const upstreamTexts = upstream.filter(({ node }) => node?.type === "rh-text").map(({ node, edge }) => ({ nodeId: node.id, edgeId: edge.id, chars: textFromNode(node).length }));
+    const imageUrls = Array.isArray(params.imageUrls) ? params.imageUrls.filter(Boolean) : [];
+
+    if (!target.type) errors.push("Node type is empty");
+    if (!target.data?.modelCode && target.type !== "group") warnings.push("modelCode is empty");
+    if ((target.type === "rh-text" || target.type === "rh-image" || target.type === "rh-video") && !prompt && !upstreamTexts.length) {
+      warnings.push("No direct prompt text found");
+    }
+    if (target.type === "rh-image" && target.data?.subType === "image-image" && requireReferences && !upstreamImages.length && !imageUrls.length) {
+      errors.push("Image-to-image node has no image references");
+    }
+    if (target.type === "rh-video" && String(target.data?.subType || "").includes("video")) {
+      const videoValidation = videoRunValidation({ targetId, nodes, edges, requireReferences });
+      errors.push(...videoValidation.errors);
+    }
+
+    return {
+      ok: errors.length === 0,
+      errorCode: errors.length ? "VALIDATION_FAILED" : null,
+      errors,
+      warnings,
+      targetId,
+      type: target.type,
+      subType: target.data?.subType,
+      modelCode: target.data?.modelCode,
+      promptChars: prompt.length,
+      upstreamImages,
+      upstreamTexts,
+      imageUrls,
+      wouldSpendCredits: ["rh-text", "rh-image", "rh-video"].includes(target.type),
+      nextActions: errors.length ? ["Fix validation errors before run-node or generate-video-node."] : []
+    };
+  };
+
+  const validateNodeRun = async ({ nodeId, id, targetId, requireReferences = false } = {}) => {
+    const target = targetId || nodeId || id;
+    if (!target) throw new Error("nodeId is required");
+    return withCanvasYjs(({ nodes, edges }) =>
+      validateNodeRunSnapshot({
+        targetId: target,
+        nodes: yArrayToJson(nodes),
+        edges: yArrayToJson(edges),
+        requireReferences
+      })
+    );
+  };
+
+  const uniquePromptParts = (parts) => {
+    const seen = new Set();
+    return parts
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+      .filter((part) => {
+        if (seen.has(part)) return false;
+        seen.add(part);
+        return true;
+      });
+  };
+
+  const prepareVideoNode = async ({ nodeId, id, targetId, prompt, appendPrompt = "", promptMergeMode = "merge", referenceNodeIds, maxDepth = 1, modelCode, dryRun, ...command } = {}) => {
+    const target = targetId || nodeId || id;
+    if (!target) throw new Error("nodeId is required");
+    return withCanvasMutation({ type: "canvas.prepareVideoNode", dryRun, ...command }, ({ Y, doc, nodes, edges }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const currentEdges = yArrayToJson(edges);
+      const nodeById = new Map(currentNodes.map((node) => [node?.id, node]).filter(([id]) => id));
+      const videoNode = nodeById.get(target);
+      if (!videoNode) throw new Error(`Node not found: ${target}`);
+      if (videoNode.type !== "rh-video") throw new Error(`Expected rh-video node, got ${videoNode.type || "unknown"}`);
+
+      const upstream = collectUpstreamSubgraph({ targetId: target, nodes: currentNodes, edges: currentEdges, maxDepth: Number(maxDepth) || 1 });
+      const direct = directUpstreamNodes({ targetId: target, nodes: currentNodes, edges: currentEdges });
+      const textNodes = upstream.nodes.filter((node) => node?.id !== target && node?.type === "rh-text");
+      const existingPrompt = videoNode.data?.params?.prompt || "";
+      const upstreamPrompt = textNodes.map(textFromNode).filter(Boolean).join("\n\n");
+      const incomingPrompt = prompt !== undefined ? prompt : upstreamPrompt;
+      const finalPrompt =
+        promptMergeMode === "replace"
+          ? uniquePromptParts([incomingPrompt || existingPrompt, appendPrompt]).join("\n\n")
+          : promptMergeMode === "append"
+            ? uniquePromptParts([existingPrompt, appendPrompt || incomingPrompt]).join("\n\n")
+            : uniquePromptParts([existingPrompt, incomingPrompt, appendPrompt]).join("\n\n");
+
+      const requestedReferenceNodes = Array.isArray(referenceNodeIds)
+        ? referenceNodeIds.map((refId) => nodeById.get(refId)).filter(Boolean)
+        : direct.filter(({ node }) => node?.type === "rh-image").map(({ node }) => node);
+      const referenceEntries = requestedReferenceNodes
+        .map((node) => ({ node, url: imageUrlsFromNode(node)[0] }))
+        .filter((item) => item.url);
+      const imageUrls = [...new Set(referenceEntries.map((item) => item.url))];
+      if (!imageUrls.length) throw new Error("No upstream image outputs found for video references");
+      const existingModelCode = videoNode.data?.modelCode || "";
+      const nextModelCode = modelCode || (String(existingModelCode).includes("multimodal-video") ? existingModelCode : MODEL_OPTIONS["multimodal-video"].defaultModelCode);
+
+      const next = {
+        ...videoNode,
+        data: {
+          ...(videoNode.data || {}),
+          params: {
+            ...(videoNode.data?.params || {}),
+            prompt: finalPrompt,
+            resolution: videoNode.data?.params?.resolution || "720p",
+            duration: String(videoNode.data?.params?.duration || "5"),
+            imageUrls,
+            videoUrls: videoNode.data?.params?.videoUrls || [],
+            audioUrls: videoNode.data?.params?.audioUrls || [],
+            generateAudio: videoNode.data?.params?.generateAudio ?? true,
+            ratio: videoNode.data?.params?.ratio ?? null,
+            realPersonMode: videoNode.data?.params?.realPersonMode ?? false,
+            conversionSlots:
+              Array.isArray(videoNode.data?.params?.conversionSlots) && videoNode.data.params.conversionSlots.length
+                ? videoNode.data.params.conversionSlots
+                : ["all"]
+          },
+          modelCode: nextModelCode,
+          subType: "multimodal-video",
+          hasUpstream: true,
+          preparedBy: "bridge",
+          preparedAt: Date.now()
+        }
+      };
+
+      const addedEdges = [];
+      doc.transact(() => {
+        for (let index = 0; index < nodes.length; index++) {
+          const item = nodes.get(index);
+          const json = item?.toJSON?.() || item;
+          if (json?.id !== target) continue;
+          nodes.delete(index, 1);
+          nodes.insert(index, [toYValue(Y, next)]);
+          break;
+        }
+        const existingEdgeIds = new Set(yArrayToJson(edges).map((edge) => edge?.id));
+        for (const { node } of referenceEntries) {
+          const edgeId = `e-${node.id}-${target}`;
+          if (existingEdgeIds.has(edgeId)) continue;
+          const edge = { id: edgeId, source: node.id, target, sourceHandle: "output", targetHandle: "input", type: "default", animated: false };
+          edges.push([toYValue(Y, edge)]);
+          addedEdges.push(edge);
+          existingEdgeIds.add(edgeId);
+        }
+      });
+
+      const afterEdges = [...currentEdges, ...addedEdges];
+      return {
+        nodeId: target,
+        node: next,
+        addedEdges,
+        validation: videoRunValidation({ targetId: target, nodes: currentNodes.map((node) => (node?.id === target ? next : node)), edges: afterEdges })
+      };
+    });
+  };
+
+  const validateVideoRun = async ({ nodeId, id, targetId, requireReferences = true } = {}) => {
+    const target = targetId || nodeId || id;
+    if (!target) throw new Error("nodeId is required");
+    return withCanvasYjs(({ nodes, edges }) =>
+      videoRunValidation({
+        targetId: target,
+        nodes: yArrayToJson(nodes),
+        edges: yArrayToJson(edges),
+        requireReferences
+      })
+    );
+  };
+
+  const generateVideoNode = async ({ nodeId, id, targetId, maxDepth = 2, runMaxDepth = 8, maxChars = 120000, dryRun = false, ...command } = {}) => {
+    const target = targetId || nodeId || id;
+    if (!target) throw new Error("nodeId is required");
+    const prepared = await prepareVideoNode({ ...command, nodeId: target, maxDepth, dryRun });
+    const preparedResult = prepared.result || prepared;
+    const preparedValidation = preparedResult.validation;
+    if (!preparedValidation?.ok) {
+      throw new Error(`Video preparation validation failed: ${(preparedValidation?.errors || []).join("; ")}`);
+    }
+    if (dryRun) return { dryRun: true, prepared, validation: preparedValidation, run: null };
+    const validation = await validateVideoRun({ nodeId: target, requireReferences: true });
+    if (!validation.ok) throw new Error(`Video run validation failed: ${validation.errors.join("; ")}`);
+    const run = await runNode({ nodeId: target, maxDepth: runMaxDepth, maxChars, validateReferences: true });
+    return { prepared, validation, run };
+  };
+
+  const runNode = async ({ nodeId, id, targetId, maxDepth = 8, maxChars = 120000, validateReferences = false } = {}) => {
+    const target = targetId || nodeId || id;
+    if (!target) throw new Error("nodeId is required");
+    const payload = await withCanvasYjs(({ nodes, edges, canvasId }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const currentEdges = yArrayToJson(edges);
+      if (!currentNodes.some((node) => node?.id === target)) throw new Error(`Node not found: ${target}`);
+      if (validateReferences) {
+        const validation = videoRunValidation({ targetId: target, nodes: currentNodes, edges: currentEdges, requireReferences: true });
+        if (!validation.ok) throw new Error(`Video run validation failed: ${validation.errors.join("; ")}`);
+      }
+      const subgraph = collectUpstreamSubgraph({ targetId: target, nodes: currentNodes, edges: currentEdges, maxDepth: Number(maxDepth) || 8 });
+      return {
+        canvasId,
+        targetType: "NODE",
+        targetId: target,
+        canvas: subgraph
+      };
+    });
+    const response = await postJson("/canvas/task/run", payload, maxChars);
+    return { request: payload, response, task: taskInfoFromRunResponse(response) };
   };
 
   const mergePlainObject = (target, patch) => {
@@ -909,7 +1416,8 @@
 
   const createVideoNode = async (config = {}, command = {}) =>
     withCanvasMutation(command, ({ Y, doc, nodes, edges }) => {
-      const model = resolveModelAlias({ modelName: config.modelName, modelCode: config.modelCode, subType: "text-video" });
+      const targetSubType = config.subType || config.data?.subType || "text-video";
+      const model = resolveModelAlias({ modelName: config.modelName, modelCode: config.modelCode, subType: targetSubType });
       const currentNodes = yArrayToJson(nodes);
       const timestamp = Date.now();
       const suffix = Math.random().toString(36).slice(2, 10);
@@ -936,9 +1444,9 @@
             ...(model?.params || {}),
             ...(config.params || {})
           },
-          modelCode: model?.modelCode || "text-video-sparkvideo-2.0",
+          modelCode: model?.modelCode || config.modelCode || "text-video-sparkvideo-2.0",
           generateNum: Number(config.generateNum || 1),
-          subType: "text-video",
+          subType: targetSubType,
           title: config.title || "视频生成",
           type: "rh-video",
           status: "idle",
@@ -970,7 +1478,17 @@
           addedEdges.push(edge);
         }
       });
-      return { nodeId, node, edges: addedEdges };
+      return {
+        nodeId,
+        node,
+        edges: addedEdges,
+        nextActions: [
+          "This command only creates/configures the video node; it does not run generation.",
+          targetSubType === "multimodal-video"
+            ? "Connect or provide reference image nodes, then run prepare-video-node and validate-video-run before paid generation."
+            : "For image-conditioned video, connect reference image nodes and run prepare-video-node to switch the node to multimodal-video."
+        ]
+      };
     });
 
   const createImageNode = async (config = {}, command = {}) =>
@@ -1036,8 +1554,262 @@
           addedEdges.push(edge);
         }
       });
+      return {
+        nodeId,
+        node,
+        edges: addedEdges,
+        nextActions: [
+          "This command only creates/configures the image node; it does not generate an image.",
+          "Run validate-node-run, then run-node when paid image generation is intended."
+        ]
+      };
+    });
+
+  const createReferenceImageNode = async (config = {}, command = {}) =>
+    withCanvasMutation(command, ({ Y, doc, nodes, edges }) => {
+      const sourceUrl = config.sourceUrl || config.url || config.sourceObject;
+      if (!sourceUrl) throw new Error("sourceUrl is required");
+      const currentNodes = yArrayToJson(nodes);
+      const timestamp = Date.now();
+      const suffix = Math.random().toString(36).slice(2, 10);
+      const nodeId = config.id || `node_${timestamp}_${suffix}`;
+      const maxX = currentNodes.reduce((max, node) => Math.max(max, Number(node?.position?.x) || 0), 0);
+      const node = {
+        id: nodeId,
+        type: "rh-image",
+        position: {
+          x: Number(config.x ?? Math.max(300, maxX + 360)),
+          y: Number(config.y ?? 400)
+        },
+        zIndex: currentNodes.length + 1,
+        style: {},
+        selectable: true,
+        data: {
+          params: {
+            prompt: "",
+            aspectRatio: null,
+            quality: "medium",
+            resolution: "1k",
+            ...(config.params || {})
+          },
+          modelCode: config.modelCode || MODEL_OPTIONS["text-image"].defaultModelCode,
+          generateNum: Number(config.generateNum || 1),
+          subType: config.subType || "text-image",
+          title: config.title || "参考图",
+          sourceObjects: [sourceUrl],
+          status: "idle",
+          panorama: {
+            pausedModel: ""
+          },
+          width: Number(config.width || 380),
+          height: Number(config.height || 320),
+          label: config.label || config.name || "reference image",
+          ...(config.data || {})
+        }
+      };
+      const addedEdges = [];
+      doc.transact(() => {
+        nodes.push([toYValue(Y, node)]);
+        if (config.targetNodeId) {
+          const edge = {
+            id: config.edgeId || `edge_${nodeId}_${config.targetNodeId}`,
+            source: nodeId,
+            target: config.targetNodeId,
+            sourceHandle: config.sourceHandle || "output",
+            targetHandle: config.targetHandle || "input",
+            type: "default",
+            animated: false
+          };
+          edges.push([toYValue(Y, edge)]);
+          addedEdges.push(edge);
+        }
+      });
       return { nodeId, node, edges: addedEdges };
     });
+
+  const createReferenceFromUrl = async ({ url, sourceUrl, targetNodeId, config = {}, dryRun, ...command } = {}) => {
+    const referenceUrl = sourceUrl || url;
+    if (!referenceUrl) throw new Error("url is required");
+    const created = await createReferenceImageNode(
+      {
+        ...config,
+        sourceUrl: referenceUrl,
+        targetNodeId: targetNodeId || config.targetNodeId
+      },
+      { type: "canvas.createReferenceFromUrl", dryRun, ...command }
+    );
+    const result = created?.result || created;
+    return {
+      ok: true,
+      dryRun: Boolean(created?.dryRun),
+      applied: created?.applied,
+      rollbackId: created?.rollbackId,
+      primaryReference: {
+        nodeId: result.nodeId,
+        urls: [referenceUrl],
+        title: result.node?.data?.title,
+        label: result.node?.data?.label
+      },
+      usableReferences: [
+        {
+          nodeId: result.nodeId,
+          urls: [referenceUrl],
+          title: result.node?.data?.title,
+          label: result.node?.data?.label
+        }
+      ],
+      created,
+      nextActions: targetNodeId ? [] : ["Connect primaryReference.nodeId to the target generation node when needed."]
+    };
+  };
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const uploadReferenceImage = async ({ nodeId, targetNodeId, file = {}, inputIndex = 1, waitMs = 8000 } = {}) => {
+    const target = targetNodeId || nodeId;
+    if (!target) throw new Error("nodeId is required");
+    if (!file.base64) throw new Error("file.base64 is required");
+    const nodeEl = Array.from(document.querySelectorAll(".vue-flow__node")).find((el) => el.getAttribute("data-id") === target);
+    if (!nodeEl) throw new Error(`Rendered node not found: ${target}`);
+    nodeEl.click();
+    await wait(500);
+
+    const bytes = Uint8Array.from(atob(file.base64), (char) => char.charCodeAt(0));
+    const uploadFile = new File([bytes], file.name || "reference.jpg", {
+      type: file.type || "image/jpeg",
+      lastModified: Date.now()
+    });
+    const inputs = Array.from(document.querySelectorAll('.vue-flow__node-rh-image.selected input[type="file"][accept="image/*"]'));
+    const orderedIndexes = [Number(inputIndex), 0, 1, 2].filter((value, index, array) => Number.isInteger(value) && value >= 0 && array.indexOf(value) === index);
+    const attempts = [];
+    for (const index of orderedIndexes) {
+      const input = inputs[index];
+      if (!input) continue;
+      try {
+        const transfer = new DataTransfer();
+        transfer.items.add(uploadFile);
+        Object.defineProperty(input, "files", { configurable: true, value: transfer.files });
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        attempts.push({ index, ok: true, multiple: input.multiple, files: input.files?.length || 0 });
+        break;
+      } catch (error) {
+        attempts.push({ index, ok: false, error: String(error) });
+      }
+    }
+    if (!attempts.some((attempt) => attempt.ok)) {
+      throw new Error(`No image input accepted file: ${JSON.stringify(attempts)}`);
+    }
+    await wait(Number(waitMs) || 8000);
+    const connections = await getConnections({ nodeId: target, direction: "upstream", depth: 1 });
+    return { targetNodeId: target, file: { name: uploadFile.name, type: uploadFile.type, size: uploadFile.size }, attempts, connections };
+  };
+
+  const usableReferencesFromConnections = (connections = {}) => {
+    const targetIds = new Set(connections.seeds || []);
+    return (connections.nodes || [])
+      .filter((node) => node?.type === "rh-image" && !targetIds.has(node.id))
+      .map((node) => ({
+        nodeId: node.id,
+        title: node.data?.title,
+        label: node.data?.label,
+        urls: imageUrlsFromNode(node)
+      }))
+      .filter((item) => item.urls.length);
+  };
+
+  const uploadLocalReferenceImage = async ({ config = {}, file = {}, inputIndex = 1, waitMs = 8000, renderWaitMs = 1200, connectToNodeId } = {}) => {
+    if (!file.base64) throw new Error("file.base64 is required");
+    const stagingConfig = {
+      title: file.name ? `参考图｜${file.name}` : "参考图",
+      data: {
+        label: file.name || "reference image",
+        width: Number(config.width || 380),
+        height: Number(config.height || 320)
+      },
+      ...config
+    };
+    const created = await createImageNode(stagingConfig, { type: "canvas.createImageNode" });
+    const stagingNodeId = created?.result?.nodeId;
+    if (!stagingNodeId) throw new Error("Failed to create staging image node");
+    await wait(Number(renderWaitMs) || 1200);
+    const uploaded = await uploadReferenceImage({ nodeId: stagingNodeId, file, inputIndex, waitMs });
+    const usableReferences = usableReferencesFromConnections(uploaded.connections);
+    const connectedEdges = [];
+    if (connectToNodeId) {
+      for (const reference of usableReferences) {
+        const edgeResult = await connectNodes({ source: reference.nodeId, target: connectToNodeId });
+        connectedEdges.push(edgeResult?.result || edgeResult);
+      }
+    }
+    return {
+      stagingNodeId,
+      file: uploaded.file,
+      attempts: uploaded.attempts,
+      usableReferences,
+      primaryReference: usableReferences[0] || null,
+      connectedEdges,
+      connections: uploaded.connections
+    };
+  };
+
+  const pollNodeResult = async ({ nodeId, id, timeoutMs = 180000, intervalMs = 3000, requireOutput = true } = {}) => {
+    const target = nodeId || id;
+    if (!target) throw new Error("nodeId is required");
+    const startedAt = Date.now();
+    let lastSummary = null;
+    while (Date.now() - startedAt <= Number(timeoutMs || 180000)) {
+      const summary = await withCanvasYjs(({ nodes }) => {
+        const node = yArrayToJson(nodes).find((item) => item?.id === target);
+        if (!node) throw new Error(`Node not found: ${target}`);
+        return summarizeNodeResult(node);
+      });
+      lastSummary = summary;
+      const hasOutput = summary.outputCount > 0 || summary.outputs.length > 0;
+      if ((requireOutput && hasOutput) || (!requireOutput && (hasOutput || summary.hasTerminalStatus))) {
+        return { ok: true, done: true, elapsedMs: Date.now() - startedAt, ...summary };
+      }
+      if (summary.hasTerminalStatus && !hasOutput) {
+        return { ok: false, done: true, elapsedMs: Date.now() - startedAt, ...summary };
+      }
+      await wait(Number(intervalMs || 3000));
+    }
+    return { ok: false, done: false, elapsedMs: Date.now() - startedAt, last: lastSummary };
+  };
+
+  const findTaskResultInSnapshot = ({ taskId, nodes }) => {
+    for (const node of nodes) {
+      const outputs = outputUrlsFromNode(node).filter((item) => item.taskId === taskId);
+      if (outputs.length || node?.data?.taskId === taskId) {
+        return {
+          nodeId: node.id,
+          type: node.type,
+          title: node.data?.title,
+          status: node.data?.status,
+          taskId,
+          outputs,
+          outputCount: outputs.length,
+          nodeSummary: summarizeNodeResult(node)
+        };
+      }
+    }
+    return null;
+  };
+
+  const pollTaskResult = async ({ taskId, timeoutMs = 180000, intervalMs = 3000, requireOutput = true } = {}) => {
+    if (!taskId) throw new Error("taskId is required");
+    const startedAt = Date.now();
+    let last = null;
+    while (Date.now() - startedAt <= Number(timeoutMs || 180000)) {
+      const match = await withCanvasYjs(({ nodes }) => findTaskResultInSnapshot({ taskId, nodes: yArrayToJson(nodes) }));
+      last = match;
+      if (match && (!requireOutput || match.outputs.length)) {
+        return { ok: true, done: true, elapsedMs: Date.now() - startedAt, ...match };
+      }
+      await wait(Number(intervalMs || 3000));
+    }
+    return { ok: false, done: false, elapsedMs: Date.now() - startedAt, taskId, last };
+  };
 
   const updateNodeModel = async ({ nodeId, id, modelCode, modelName, data = {}, ...command } = {}) => {
     const targetId = nodeId || id;
@@ -1307,6 +2079,8 @@
           nodes: yArrayToJson(nodes),
           edges: yArrayToJson(edges)
         }));
+      } else if (command.type === "canvas.summary") {
+        result = await summarizeCanvas(command);
       } else if (command.type === "canvas.rollbackList") {
         result = rollbackStack.map(({ before, after, ...entry }) => ({
           ...entry,
@@ -1341,6 +2115,28 @@
         result = await createVideoNode(command.config || {}, command);
       } else if (command.type === "canvas.createImageNode") {
         result = await createImageNode(command.config || {}, command);
+      } else if (command.type === "canvas.createReferenceImageNode") {
+        result = await createReferenceImageNode(command.config || {}, command);
+      } else if (command.type === "canvas.createReferenceFromUrl") {
+        result = await createReferenceFromUrl(command);
+      } else if (command.type === "canvas.uploadReferenceImage") {
+        result = await uploadReferenceImage(command);
+      } else if (command.type === "canvas.uploadLocalReferenceImage") {
+        result = await uploadLocalReferenceImage(command);
+      } else if (command.type === "canvas.prepareVideoNode") {
+        result = await prepareVideoNode(command);
+      } else if (command.type === "canvas.validateVideoRun") {
+        result = await validateVideoRun(command);
+      } else if (command.type === "canvas.validateNodeRun") {
+        result = await validateNodeRun(command);
+      } else if (command.type === "canvas.generateVideoNode") {
+        result = await generateVideoNode(command);
+      } else if (command.type === "canvas.runNode") {
+        result = await runNode(command);
+      } else if (command.type === "canvas.pollNodeResult") {
+        result = await pollNodeResult(command);
+      } else if (command.type === "canvas.pollTaskResult") {
+        result = await pollTaskResult(command);
       } else if (command.type === "canvas.connectNodes") {
         result = await connectNodes(command);
       } else if (command.type === "canvas.updateNodeModel") {
@@ -1375,6 +2171,7 @@
         kind: "command.result",
         commandId: command.id,
         ok: false,
+        errorCode: errorCodeFromError(error),
         error: error && error.stack ? error.stack : String(error)
       });
     }
@@ -1382,6 +2179,18 @@
 
   const pollCommands = async () => {
     try {
+      const versionResponse = await fetch(`${BRIDGE}/runtime-version`, { mode: "cors", cache: "no-store" });
+      if (versionResponse.ok) {
+        const version = await versionResponse.json();
+        if (version.version && version.version !== RUNTIME_VERSION) {
+          postEvent({ kind: "bridge.runtime.stale", currentVersion: RUNTIME_VERSION, nextVersion: version.version });
+          const runtimeResponse = await fetch(`${BRIDGE}/bridge-runtime.js?ts=${Date.now()}`, { mode: "cors", cache: "no-store" });
+          if (!runtimeResponse.ok) throw new Error(`Failed to reload runtime: ${runtimeResponse.status}`);
+          const code = await runtimeResponse.text();
+          new Function(`${code}\n//# sourceURL=runninghub-canvas-bridge-runtime.js`)();
+          return;
+        }
+      }
       const response = await fetch(`${BRIDGE}/commands?clientId=${encodeURIComponent(CLIENT_ID)}&href=${encodeURIComponent(location.href)}`, {
         mode: "cors"
       });
@@ -1390,10 +2199,10 @@
         for (const command of commands) await executeCommand(command);
       }
     } catch {}
-    setTimeout(pollCommands, 700);
+    pollTimer = setTimeout(pollCommands, 700);
   };
 
-  const originalFetch = window.fetch.bind(window);
+  originalFetch = window.fetch.bind(window);
   window.fetch = async function patchedFetch(input, init) {
     const url = typeof input === "string" ? input : input && input.url;
     const capture = shouldCapture(url);
@@ -1444,7 +2253,7 @@
     return response;
   };
 
-  const OriginalXHR = window.XMLHttpRequest;
+  OriginalXHR = window.XMLHttpRequest;
   window.XMLHttpRequest = function PatchedXMLHttpRequest() {
     const xhr = new OriginalXHR();
     const rec = { kind: "xhr.request", headers: {}, requestId: `${Date.now()}-${Math.random().toString(36).slice(2)}` };
@@ -1481,7 +2290,7 @@
     return xhr;
   };
 
-  const OriginalWebSocket = window.WebSocket;
+  OriginalWebSocket = window.WebSocket;
   window.WebSocket = function PatchedWebSocket(url, protocols) {
     const safeUrl = redactUrl(url);
     postEvent({
@@ -1502,9 +2311,21 @@
 
   window.__RUNNINGHUB_CANVAS_BRIDGE__ = {
     clientId: CLIENT_ID,
+    version: RUNTIME_VERSION,
     graph: summarizeGraph,
     capabilities: canvasCapabilities,
     commands: COMMAND_CAPABILITIES.map((capability) => capability.type)
+  };
+
+  window.__RUNNINGHUB_CANVAS_BRIDGE_CLEANUP__ = () => {
+    if (pollTimer) clearTimeout(pollTimer);
+    if (originalFetch) window.fetch = originalFetch;
+    if (OriginalXHR) window.XMLHttpRequest = OriginalXHR;
+    if (OriginalWebSocket) {
+      window.WebSocket = OriginalWebSocket;
+      window.WebSocket.prototype = OriginalWebSocket.prototype;
+    }
+    window.__RUNNINGHUB_CANVAS_BRIDGE_INSTALLED__ = false;
   };
 
   postEvent({ kind: "bridge.installed", graph: summarizeGraph() });

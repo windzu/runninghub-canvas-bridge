@@ -39,6 +39,7 @@ Not implemented yet:
 - `extension/bridge-main.js`: stable loader injected by Chrome.
 - `server/bridge-runtime.js`: hot-loaded page bridge runtime served by the local server.
 - `server/server.mjs`: local bridge server.
+- `AGENT_QUICKSTART.md`: minimal handoff guide for Agents operating the canvas.
 - `docs/context.md`: research context and known RunningHub internals.
 - `docs/next-steps.md`: recommended continuation plan.
 
@@ -91,6 +92,7 @@ When no `--client` is passed, the server routes commands to the most recently ac
 - `npm run bridge -- events`: list recent bridge events.
 - `npm run bridge -- snapshot`: return a DOM-level graph snapshot from the live canvas page.
 - `npm run bridge -- yjs-snapshot`: return the canonical Yjs canvas nodes and edges.
+- `npm run bridge -- canvas-summary`: return compact Agent-oriented canvas state.
 - `npm run bridge -- rollback-list`: list recent rollback points created by mutating commands.
 - `npm run bridge -- rollback [rollbackId]`: restore the latest or selected rollback point.
 - `npm run bridge -- capabilities`: return supported bridge commands and parameter notes.
@@ -103,8 +105,12 @@ When no `--client` is passed, the server routes commands to the most recently ac
 - `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
 - `npm run bridge -- create-text-node --config-json '<json>'`: create one `rh-text` node.
 - `npm run bridge -- create-node --config-json '<json>'`: create one generic canvas node from a node template, type, position, and data.
-- `npm run bridge -- create-video-node --config-json '<json>'`: create one native `rh-video` text-to-video node and optionally connect it to an upstream node.
-- `npm run bridge -- create-image-node --config-json '<json>'`: create one native `rh-image` text-to-image node and optionally connect it to an upstream node.
+- `npm run bridge -- create-video-node --config-json '<json>' [--multimodal]`: create one native `rh-video` node without running generation; use `--multimodal` for reference-conditioned video setup.
+- `npm run bridge -- create-image-node --config-json '<json>'`: create one native `rh-image` text-to-image node without running generation.
+- `npm run bridge -- create-reference-from-url --url <url> --config-json '<json>'`: create a directly usable reference image node from an existing URL.
+- `npm run bridge -- upload-local-reference-image --file <path> --config-json '<json>'`: create a staging image node, upload the local file, and return directly usable reference node ids and URLs.
+- `npm run bridge -- upload-reference-image <nodeId> --file <path>`: inject a local image into an existing rendered image node.
+- `npm run bridge -- prepare-video-node <nodeId> --append-prompt '<text>'`: merge upstream prompt/reference inputs into an `rh-video` node without running generation.
 - `npm run bridge -- connect-nodes <sourceId> <targetId>`: create one edge between two nodes.
 - `npm run bridge -- update-node-model <nodeId> <modelCode>`: update one node's `data.modelCode`.
 - `npm run bridge -- update-node-params <nodeId> --params-json '<json>'`: merge values into one node's `data.params`.
@@ -113,6 +119,9 @@ When no `--client` is passed, the server routes commands to the most recently ac
 - `npm run bridge -- move-node <nodeId> <x> <y>`: update a node position.
 - `npm run bridge -- move-nodes <id...> --dx <n> --dy <n>`: move multiple nodes by delta, or pass `--positions-json` for explicit positions.
 - `npm run bridge -- delete-elements <id...>`: delete nodes, groups, and edges by id through the canvas Yjs room.
+- `npm run bridge -- validate-node-run <nodeId>`: generic pre-run validation for text, image, and video nodes.
+- `npm run bridge -- poll-node-result <nodeId> --poll-timeout <ms>`: wait for generated node outputs and return structured `outputs[].url`.
+- `npm run bridge -- poll-task-result <taskId> --poll-timeout <ms>`: wait for canvas outputs matching a RunningHub task id.
 - `npm run bridge -- get-canvas-detail <canvasId>`: call `/canvas/getCanvasDetail` inside the logged-in page context.
 - `npm run bridge -- workflow-list <canvasId>`: call `/canvas/workflow/list` inside the logged-in page context.
 - `npm run bridge -- api-post <endpoint> --body-json '<json>'`: run an arbitrary POST inside the page context.

@@ -1,0 +1,104 @@
+# Agent Quickstart
+
+This repository is a local tool layer for operating a logged-in RunningHub infinite canvas without mouse automation.
+
+The goal for any Agent is simple:
+
+1. Verify the bridge and page are ready.
+2. Read the canvas state.
+3. Create or update nodes through structured commands.
+4. Validate before paid generation.
+5. Run generation only when allowed.
+6. Poll nodes for structured output URLs.
+
+## First Commands
+
+Run these before changing the canvas:
+
+- `node scripts/rh-bridge.mjs agent-manifest`
+- `node scripts/rh-bridge.mjs preflight`
+- `node scripts/rh-bridge.mjs canvas-summary`
+
+Only proceed when `preflight.ok` is `true`.
+
+Important blocking reasons:
+
+- `BRIDGE_OFFLINE`: start `node server/server.mjs`.
+- `NO_PAGE_CLIENT`: open or refresh a RunningHub canvas page with the unpacked extension enabled.
+- `STALE_RUNTIME`: refresh the RunningHub canvas page or let the runtime auto-reload on the next command.
+- `MISSING_CAPABILITY`: the live page runtime does not expose the expected Agent commands.
+
+## Upload Local Images
+
+Prefer the one-shot command:
+
+- `node scripts/rh-bridge.mjs upload-local-reference-image --file /absolute/path/image.jpg --config-json '{"x":300,"y":300,"title":"参考图"}' --timeout 60000`
+
+Use these fields from the result:
+
+- `primaryReference.nodeId`: direct upstream image node id for image/video generation.
+- `primaryReference.urls[0]`: uploaded image URL.
+- `usableReferences[]`: all image reference nodes found after upload.
+
+Avoid relying on the staging node unless you specifically need it for layout. RunningHub may create a separate native upload node; `primaryReference.nodeId` is the Agent-friendly reference.
+
+## Create References From URLs
+
+If you already have a usable image URL, prefer:
+
+- `node scripts/rh-bridge.mjs create-reference-from-url --url <imageUrl> --config-json '{"x":300,"y":300,"title":"参考图"}'`
+
+Use `primaryReference.nodeId` exactly as you would use a locally uploaded reference.
+
+## Create And Connect Nodes
+
+Common primitives:
+
+- `create-text-node`: create a prompt/spec node.
+- `create-image-node`: create an image generation node without running generation.
+- `create-video-node`: create a video generation node without running generation; add `--multimodal` for reference-conditioned video setup.
+- `connect-nodes`: connect any two existing nodes.
+- `update-node`, `update-node-params`, `update-node-text`: change node fields.
+- `move-node`, `move-nodes`: arrange canvas layout.
+- `delete-elements --dry-run`: inspect deletion impact before deleting.
+
+Mutation commands return a rollback id when applied. Use `rollback-list` and `rollback` if a command creates the wrong canvas state.
+
+## Safe Video Generation
+
+Use this order:
+
+1. Create or identify an `rh-video` node.
+2. Connect at least one direct upstream `rh-image` reference node.
+3. Connect or provide prompt text.
+   `prepare-video-node` preserves existing video prompt text by default and merges upstream text/reference inputs.
+4. Validate:
+   `node scripts/rh-bridge.mjs validate-node-run <videoNodeId> --require-references`
+5. Dry-run:
+   `node scripts/rh-bridge.mjs generate-video-node <videoNodeId> --dry-run --timeout 60000`
+6. Confirm:
+   - `validation.ok` is `true`
+   - `subType` is `multimodal-video`
+   - `modelCode` contains `multimodal-video`
+   - every `references[].hasDirectUpstreamImage` is `true`
+7. Run only when generation is allowed:
+   `node scripts/rh-bridge.mjs generate-video-node <videoNodeId> --timeout 180000`
+8. Poll output:
+   `node scripts/rh-bridge.mjs poll-node-result <videoNodeId> --poll-timeout 300000 --timeout 305000`
+
+The poll result exposes `outputs[].url` for generated media.
+
+If you have a RunningHub `taskId`, use:
+
+- `node scripts/rh-bridge.mjs poll-task-result <taskId> --poll-timeout 300000 --timeout 305000`
+
+This scans canvas node outputs for matching `taskId`.
+
+## Rules For Agents
+
+- Do not use `page.eval` in normal workflows.
+- Do not print cookies, tokens, authorization headers, or private payloads.
+- Prefer high-level commands over reconstructing RunningHub internals.
+- For paid generation, dry-run and validate first.
+- Treat returned node ids and URLs as the source of truth; do not infer them from the visible UI.
+- If a command returns structured warnings or blocking errors, stop and fix those before running generation.
