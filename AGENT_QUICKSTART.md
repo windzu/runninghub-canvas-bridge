@@ -63,6 +63,7 @@ Common primitives:
 - `create-text-node`: create a prompt/spec node.
 - `create-text-nodes`: create a coherent set of prompt/spec nodes with one rollback id.
 - `suggest-empty-region`: find a conservative empty area before adding nodes to a crowded canvas.
+- `group-elements`: visually group explicitly provided nodes after creating a coherent block.
 - `create-image-node`: create an image generation node without running generation.
 - `create-video-node`: create a video generation node without running generation; add `--multimodal` for reference-conditioned video setup.
 - `connect-nodes`: connect any two existing nodes.
@@ -107,6 +108,7 @@ This scans canvas node outputs for matching `taskId`.
 - Do not use `page.eval` in normal workflows.
 - Do not print cookies, tokens, authorization headers, or private payloads.
 - Prefer compact `canvas-summary`, `find-elements --summary`, and field-limited output before requesting full node payloads.
+- Use `--pretty-summary` for supervised human-readable output, and default JSON for machine parsing.
 - Prefer high-level commands over reconstructing RunningHub internals.
 - For paid generation, dry-run and validate first.
 - Treat returned node ids and URLs as the source of truth; do not infer them from the visible UI.

@@ -114,6 +114,13 @@ const AGENT_MANIFEST = {
       costsCredits: false,
       supportsDryRun: false
     },
+    "group-elements": {
+      summary: "Create a group around explicitly provided nodes.",
+      requiresPageClient: true,
+      mutatesCanvas: true,
+      costsCredits: false,
+      supportsDryRun: true
+    },
     "create-image-node": {
       summary: "Create an rh-image generation node without running it.",
       requiresPageClient: true,
@@ -258,6 +265,7 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-text-nodes [--client <clientId>] [--timeout <ms>] [--config-json <json-array>] [--x <n>] [--y <n>] [--gap-x <n>] [--gap-y <n>] [--dry-run]
   node scripts/rh-bridge.mjs suggest-empty-region [--client <clientId>] [--timeout <ms>] [--near-text <text>] [--around-node <nodeId>] [--direction <right-down|right-up|left-down|left-up>] [--width <n>] [--height <n>] [--padding <n>]
+  node scripts/rh-bridge.mjs group-elements <id...> [--client <clientId>] [--timeout <ms>] [--title <title>] [--padding <n>] [--style-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-video-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--multimodal] [--dry-run]
   node scripts/rh-bridge.mjs create-image-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
@@ -287,6 +295,9 @@ const usage = `Usage:
 
 Environment:
   RH_BRIDGE_URL  Bridge base URL. Defaults to ${DEFAULT_BRIDGE}
+
+Output:
+  Default output is JSON. Add --pretty-summary for compact human-readable output.
 `;
 
 const args = process.argv.slice(2);
@@ -343,6 +354,56 @@ const jsonOption = (name, fallback = {}) => {
   }
 };
 
+const summarizeForHuman = (value) => {
+  const lines = [];
+  const route = value?.commandRoute;
+  if (route) {
+    lines.push(`Route: ${route.selectedClientId || "none"} (${route.runtimeFreshness || "unknown"}, ${route.selectionReason || "no reason"})`);
+    if (route.sameCanvasClients > 1) lines.push(`Same-canvas clients: ${route.sameCanvasClients}; ignored older/stale: ${(route.olderClientsIgnored || []).length}`);
+  }
+  if (value?.ok === false) {
+    lines.push(`Result: blocked${value.errorCode ? ` (${value.errorCode})` : ""}`);
+    if (value.error) lines.push(`Error: ${String(value.error).split("\n")[0]}`);
+  } else if (value?.ok === true) {
+    lines.push("Result: ok");
+  }
+  const counts = value?.counts || value?.result?.counts;
+  if (counts) {
+    const compactCounts = Object.entries(counts)
+      .filter(([, item]) => typeof item !== "object")
+      .map(([key, item]) => `${key}=${item}`)
+      .join(", ");
+    if (compactCounts) lines.push(`Counts: ${compactCounts}`);
+  }
+  const diff = value?.diff;
+  if (diff) {
+    lines.push(
+      `Diff: nodes +${diff.nodes?.counts?.added || 0}/-${diff.nodes?.counts?.removed || 0}/~${diff.nodes?.counts?.updated || 0}, edges +${diff.edges?.counts?.added || 0}/-${diff.edges?.counts?.removed || 0}/~${diff.edges?.counts?.updated || 0}`
+    );
+  }
+  if (value?.rollbackId) lines.push(`Rollback: ${value.rollbackId}`);
+  const nodeIds = value?.nodeIds || value?.result?.nodeIds || value?.groupedNodeIds || value?.result?.groupedNodeIds;
+  if (Array.isArray(nodeIds) && nodeIds.length) lines.push(`Node ids: ${nodeIds.join(", ")}`);
+  const groupId = value?.groupId || value?.result?.groupId;
+  if (groupId) lines.push(`Group: ${groupId}`);
+  const region = value?.region || value?.result?.region;
+  if (region) lines.push(`Region: x=${region.x} y=${region.y} width=${region.width} height=${region.height}`);
+  const nodes = value?.nodes || value?.result?.nodes || value?.groupedNodes || value?.result?.groupedNodes;
+  if (Array.isArray(nodes) && nodes.length) {
+    lines.push("Nodes:");
+    for (const node of nodes.slice(0, 12)) {
+      const pos = node.position ? ` x=${Math.round(Number(node.position.x) || 0)} y=${Math.round(Number(node.position.y) || 0)}` : "";
+      lines.push(`- ${node.id || node.nodeId} ${node.title || ""}${pos}`.trim());
+    }
+    if (nodes.length > 12) lines.push(`- ... ${nodes.length - 12} more`);
+  }
+  if (Array.isArray(value?.nextActions) && value.nextActions.length) {
+    lines.push("Next actions:");
+    for (const item of value.nextActions) lines.push(`- ${item}`);
+  }
+  return lines.length ? lines.join("\n") : JSON.stringify(value, null, 2);
+};
+
 const request = async (path, init) => {
   let response;
   try {
@@ -390,8 +451,10 @@ const safeRequest = async (path, init) => {
   }
 };
 
+const outputMode = { prettySummary: false };
+
 const print = (value) => {
-  console.log(JSON.stringify(value, null, 2));
+  console.log(outputMode.prettySummary ? summarizeForHuman(value) : JSON.stringify(value, null, 2));
 };
 
 const commandTypesFromCapabilities = (capabilities) => {
@@ -590,6 +653,8 @@ const noParams = flag("--no-params");
 const compact = flag("--compact");
 const full = flag("--full");
 const summary = flag("--summary");
+outputMode.prettySummary = flag("--pretty-summary");
+flag("--json");
 const multimodal = flag("--multimodal");
 const baseCommand = clientId ? { clientId } : {};
 
@@ -702,6 +767,24 @@ if (commandName === "agent-manifest") {
         width: width === undefined ? undefined : Number(width),
         height: height === undefined ? undefined : Number(height),
         padding: padding === undefined ? undefined : Number(padding)
+      },
+      timeoutMs
+    )
+  );
+} else if (commandName === "group-elements") {
+  const style = jsonOption("--style-json", {});
+  const ids = args.splice(0);
+  if (!ids.length) fail("Missing id");
+  print(
+    await enqueue(
+      {
+        ...baseCommand,
+        type: "canvas.groupElements",
+        ids,
+        title,
+        padding: padding === undefined ? undefined : Number(padding),
+        style,
+        dryRun
       },
       timeoutMs
     )

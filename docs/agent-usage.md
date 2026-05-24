@@ -77,6 +77,7 @@ If `preflight` reports stale clients but also shows a fresh selected client, use
 - `suggest-empty-region`: find a conservative placement area before creating new nodes.
 - `create-text-node`: create an `rh-text` node.
 - `create-text-nodes`: create multiple related `rh-text` nodes in one rollbackable operation.
+- `group-elements`: create a visual group around explicitly provided node ids.
 - `create-image-node`: create an `rh-image` node without running image generation.
 - `create-video-node`: create an `rh-video` node without running video generation; use `--multimodal` when the intended path is reference-conditioned video.
 - `create-reference-from-url`: create a usable reference node from an existing image URL.

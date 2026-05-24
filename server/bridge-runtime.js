@@ -428,6 +428,10 @@
       description: "Suggest a conservative empty canvas region near matching text, around a node, or beyond existing content."
     },
     {
+      type: "canvas.groupElements",
+      description: "Create a group around explicitly provided node ids. Supports dryRun."
+    },
+    {
       type: "canvas.createNode",
       description: "Create one generic canvas node from a provided node template, type, position, and data. Supports dryRun."
     },
@@ -1607,6 +1611,73 @@
       };
     });
 
+  const groupElements = async ({ ids = [], nodeIds = [], title, groupName, padding = 80, style = {}, groupId, groupColor = "rgba(75, 130, 180, 0.18)", borderColor = "rgba(75, 130, 180, 0.65)", ...command } = {}) =>
+    withCanvasMutation({ type: "canvas.groupElements", ...command }, ({ Y, doc, nodes }) => {
+      const targetIds = [...ids, ...nodeIds].filter(Boolean);
+      if (!targetIds.length) throw new Error("At least one node id is required");
+      const targetSet = new Set(targetIds);
+      const currentNodes = yArrayToJson(nodes);
+      const targets = currentNodes.filter((node) => targetSet.has(node?.id) && node?.type !== "group");
+      const missing = targetIds.filter((id) => !targets.some((node) => node.id === id));
+      if (missing.length) throw new Error(`Node not found or not groupable: ${missing.join(", ")}`);
+      const pad = Number(padding) || 80;
+      const bounds = targets.map((node) => nodeBounds(node, 0));
+      const minX = Math.min(...bounds.map((item) => item.x));
+      const minY = Math.min(...bounds.map((item) => item.y));
+      const maxX = Math.max(...bounds.map((item) => item.x + item.width));
+      const maxY = Math.max(...bounds.map((item) => item.y + item.height));
+      const nextGroupId = groupId || `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const groupPosition = { x: minX - pad, y: minY - pad };
+      const group = {
+        id: nextGroupId,
+        type: "group",
+        position: groupPosition,
+        zIndex: -1000,
+        style,
+        selectable: false,
+        data: {
+          title: "节点",
+          groupName: groupName || title || "Agent 分组",
+          groupColor,
+          borderColor,
+          nodeIds: targets.map((node) => node.id),
+          width: maxX - minX + pad * 2,
+          height: maxY - minY + pad * 2,
+          nodeOffsets: Object.fromEntries(targets.map((node) => [node.id, { x: (Number(node.position?.x) || 0) - groupPosition.x, y: (Number(node.position?.y) || 0) - groupPosition.y }])),
+          status: "idle"
+        }
+      };
+      const groupedNodes = [];
+      doc.transact(() => {
+        for (let index = 0; index < nodes.length; index++) {
+          const node = nodes.get(index);
+          const nodeJson = node?.toJSON?.() || node;
+          if (!targetSet.has(nodeJson?.id) || nodeJson?.type === "group") continue;
+          const next = {
+            ...nodeJson,
+            data: {
+              ...(nodeJson.data || {}),
+              groupId: nextGroupId,
+              groupColor,
+              addNewGroup: true
+            }
+          };
+          nodes.delete(index, 1);
+          nodes.insert(index, [toYValue(Y, next)]);
+          groupedNodes.push(compactNodeSummary(next, { includeTextPreview: false }));
+        }
+        nodes.push([toYValue(Y, group)]);
+      });
+      return {
+        ok: true,
+        groupId: nextGroupId,
+        groupedNodeIds: targets.map((node) => node.id),
+        group,
+        groupedNodes,
+        counts: { groupedNodes: targets.length, addedGroups: 1 }
+      };
+    });
+
   const createNode = async (config = {}, command = {}) =>
     withCanvasMutation(command, ({ Y, doc, nodes }) => {
       const currentNodes = yArrayToJson(nodes);
@@ -2351,6 +2422,8 @@
         result = await createTextNode(command.config || {}, command);
       } else if (command.type === "canvas.createTextNodes") {
         result = await createTextNodes(command.config || command.configs || [], command);
+      } else if (command.type === "canvas.groupElements") {
+        result = await groupElements(command);
       } else if (command.type === "canvas.createNode") {
         result = await createNode(command.config || {}, command);
       } else if (command.type === "canvas.createVideoNode") {

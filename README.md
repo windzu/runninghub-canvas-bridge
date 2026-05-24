@@ -114,6 +114,8 @@ The CLI waits for command results by default. If multiple RunningHub tabs are op
 
 When no `--client` is passed, the server routes commands to the most recently active RunningHub canvas tab. Use `npm run bridge -- clients` to inspect active page clients.
 
+CLI output is JSON by default for automation. Add `--pretty-summary` to common commands when you want a compact human-readable summary.
+
 Common setup failures:
 
 - `BRIDGE_OFFLINE`: start the local server with `npm run start`.
@@ -158,6 +160,7 @@ The service runs `server/server.mjs` locally and does not store cookies, tokens,
 - `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
 - `npm run bridge -- create-text-node --config-json '<json>'`: create one `rh-text` node.
 - `npm run bridge -- create-text-nodes --config-json '<json-array>'`: create multiple `rh-text` nodes as one operation with one rollback id.
+- `npm run bridge -- group-elements <id...> --title '<name>' --padding <n>`: create a visual group around explicitly provided nodes.
 - `npm run bridge -- create-node --config-json '<json>'`: create one generic canvas node from a node template, type, position, and data.
 - `npm run bridge -- create-video-node --config-json '<json>' [--multimodal]`: create one native `rh-video` node without running generation; use `--multimodal` for reference-conditioned video setup.
 - `npm run bridge -- create-image-node --config-json '<json>'`: create one native `rh-image` text-to-image node without running generation.
