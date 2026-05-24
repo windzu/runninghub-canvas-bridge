@@ -356,6 +356,10 @@
       description: "Return one node or edge by id."
     },
     {
+      type: "canvas.inspectNodeTemplate",
+      description: "Extract a reusable create-node template from one existing canvas node."
+    },
+    {
       type: "canvas.getConnections",
       description: "Return upstream/downstream node and edge relationships for one or more nodes."
     },
@@ -366,6 +370,10 @@
     {
       type: "canvas.createNode",
       description: "Create one generic canvas node from a provided node template, type, position, and data. Supports dryRun."
+    },
+    {
+      type: "canvas.createVideoNode",
+      description: "Create one RunningHub native text-to-video rh-video node. Supports dryRun and optional upstream connection."
     },
     {
       type: "canvas.createTextWorkflow",
@@ -483,6 +491,42 @@
       const edge = yArrayToJson(edges).find((item) => item?.id === id);
       if (edge) return { canvasId, kind: "edge", element: edge };
       throw new Error(`Element not found: ${id}`);
+    });
+  };
+
+  const inspectNodeTemplate = async ({ nodeId, id, includePosition = false } = {}) => {
+    const targetId = nodeId || id;
+    if (!targetId) throw new Error("nodeId is required");
+    return withCanvasYjs(({ nodes, canvasId }) => {
+      const node = yArrayToJson(nodes).find((item) => item?.id === targetId);
+      if (!node) throw new Error(`Node not found: ${targetId}`);
+
+      const template = safeJson(node);
+      delete template.id;
+      delete template.selected;
+      delete template.dragging;
+      if (!includePosition) {
+        delete template.position;
+        delete template.positionAbsolute;
+        delete template.computedPosition;
+        delete template.zIndex;
+      }
+
+      const suggestedCreateConfig = {
+        type: node.type,
+        node: template,
+        data: template.data || {}
+      };
+      if (includePosition && node.position) suggestedCreateConfig.position = node.position;
+
+      return {
+        canvasId,
+        sourceNodeId: targetId,
+        type: node.type,
+        dataKeys: Object.keys(node.data || {}).sort(),
+        template,
+        suggestedCreateConfig
+      };
     });
   };
 
@@ -711,6 +755,62 @@
       return { nodeId, node };
     });
 
+  const createVideoNode = async (config = {}, command = {}) =>
+    withCanvasMutation(command, ({ Y, doc, nodes, edges }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const timestamp = Date.now();
+      const suffix = Math.random().toString(36).slice(2, 10);
+      const nodeId = config.id || `node_${timestamp}_${suffix}`;
+      const maxX = currentNodes.reduce((max, node) => Math.max(max, Number(node?.position?.x) || 0), 0);
+      const node = {
+        id: nodeId,
+        type: "rh-video",
+        position: {
+          x: Number(config.x ?? Math.max(300, maxX + 360)),
+          y: Number(config.y ?? 400)
+        },
+        zIndex: currentNodes.length + 1,
+        style: {},
+        selectable: true,
+        data: {
+          params: {
+            prompt: config.prompt || "",
+            resolution: config.resolution || "480p",
+            duration: String(config.duration || "5"),
+            generateAudio: config.generateAudio ?? true,
+            ratio: config.ratio ?? null,
+            webSearch: config.webSearch ?? false
+          },
+          modelCode: config.modelCode || "text-video-sparkvideo-2.0",
+          generateNum: Number(config.generateNum || 1),
+          subType: "text-video",
+          title: config.title || "视频生成",
+          type: "rh-video",
+          status: "idle",
+          ...(config.sourceNodeId ? { inheritedFrom: config.sourceNodeId, hasUpstream: true } : {}),
+          ...(config.data || {})
+        }
+      };
+      const addedEdges = [];
+      doc.transact(() => {
+        nodes.push([toYValue(Y, node)]);
+        if (config.sourceNodeId) {
+          const edge = {
+            id: config.edgeId || `e-${config.sourceNodeId}-${nodeId}`,
+            source: config.sourceNodeId,
+            target: nodeId,
+            sourceHandle: config.sourceHandle || "output",
+            targetHandle: config.targetHandle || "input",
+            type: "default",
+            animated: false
+          };
+          edges.push([toYValue(Y, edge)]);
+          addedEdges.push(edge);
+        }
+      });
+      return { nodeId, node, edges: addedEdges };
+    });
+
   const connectNodes = async ({ source, target, sourceHandle = "output", targetHandle = "input", edgeId: requestedEdgeId, id: commandId, ...command } = {}) => {
     if (!source) throw new Error("source is required");
     if (!target) throw new Error("target is required");
@@ -925,6 +1025,8 @@
         result = await findElements(command.query || command);
       } else if (command.type === "canvas.getElement") {
         result = await getElement(command);
+      } else if (command.type === "canvas.inspectNodeTemplate") {
+        result = await inspectNodeTemplate(command);
       } else if (command.type === "canvas.getConnections") {
         result = await getConnections(command);
       } else if (command.type === "canvas.createTextWorkflow") {
@@ -933,6 +1035,8 @@
         result = await createTextNode(command.config || {}, command);
       } else if (command.type === "canvas.createNode") {
         result = await createNode(command.config || {}, command);
+      } else if (command.type === "canvas.createVideoNode") {
+        result = await createVideoNode(command.config || {}, command);
       } else if (command.type === "canvas.connectNodes") {
         result = await connectNodes(command);
       } else if (command.type === "canvas.updateNode") {

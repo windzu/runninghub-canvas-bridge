@@ -16,10 +16,12 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs capabilities [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs find-elements [--client <clientId>] [--timeout <ms>] [--query-json <json>]
   node scripts/rh-bridge.mjs get-element <id> [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs inspect-node-template <nodeId> [--client <clientId>] [--timeout <ms>] [--include-position]
   node scripts/rh-bridge.mjs connections <nodeId> [--client <clientId>] [--timeout <ms>] [--direction <both|upstream|downstream>] [--depth <n>]
   node scripts/rh-bridge.mjs create-text-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
+  node scripts/rh-bridge.mjs create-video-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs connect-nodes <sourceId> <targetId> [--client <clientId>] [--timeout <ms>] [--dry-run]
   node scripts/rh-bridge.mjs update-node <nodeId> [--client <clientId>] [--timeout <ms>] [--patch-json <json>] [--data-json <json>] [--title <title>] [--dry-run]
   node scripts/rh-bridge.mjs update-node-text <nodeId> <text> [--client <clientId>] [--timeout <ms>] [--title <title>] [--dry-run]
@@ -141,6 +143,7 @@ const depth = option("--depth", "1");
 const dx = option("--dx", "0");
 const dy = option("--dy", "0");
 const dryRun = flag("--dry-run");
+const includePosition = flag("--include-position");
 const baseCommand = clientId ? { clientId } : {};
 
 if (commandName === "health") {
@@ -170,6 +173,10 @@ if (commandName === "health") {
   const id = args.shift();
   if (!id) fail("Missing id");
   print(await enqueue({ ...baseCommand, type: "canvas.getElement", id }, timeoutMs));
+} else if (commandName === "inspect-node-template") {
+  const nodeId = args.shift();
+  if (!nodeId) fail("Missing nodeId");
+  print(await enqueue({ ...baseCommand, type: "canvas.inspectNodeTemplate", nodeId, includePosition }, timeoutMs));
 } else if (commandName === "connections") {
   const nodeId = args.shift();
   if (!nodeId) fail("Missing nodeId");
@@ -183,6 +190,9 @@ if (commandName === "health") {
 } else if (commandName === "create-node") {
   const config = configOption();
   print(await enqueue({ ...baseCommand, type: "canvas.createNode", config, dryRun }, timeoutMs));
+} else if (commandName === "create-video-node") {
+  const config = configOption();
+  print(await enqueue({ ...baseCommand, type: "canvas.createVideoNode", config, dryRun }, timeoutMs));
 } else if (commandName === "connect-nodes") {
   const source = args.shift();
   const target = args.shift();
