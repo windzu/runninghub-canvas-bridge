@@ -5,7 +5,12 @@
   "type": "module",
   "scripts": {
     "start": "node server/server.mjs",
-    "check": "node --check server/server.mjs && node --check server/bridge-runtime.js && node --check extension/bridge-main.js && node --check scripts/rh-bridge.mjs",
-    "bridge": "node scripts/rh-bridge.mjs"
+    "check": "node --check server/server.mjs && node --check server/bridge-runtime.js && node --check extension/bridge-main.js && node --check scripts/rh-bridge.mjs && node --check scripts/rh-service.mjs",
+    "bridge": "node scripts/rh-bridge.mjs",
+    "service:install": "node scripts/rh-service.mjs install",
+    "service:start": "node scripts/rh-service.mjs start",
+    "service:status": "node scripts/rh-service.mjs status",
+    "service:restart": "node scripts/rh-service.mjs restart",
+    "service:uninstall": "node scripts/rh-service.mjs uninstall"
   }
 }

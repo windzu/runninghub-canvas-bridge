@@ -19,6 +19,8 @@ Run these before touching the canvas:
 
 Only proceed when `preflight.ok` is `true`.
 
+If `preflight` returns `NO_PAGE_CLIENT`, run `node scripts/rh-bridge.mjs diagnose-extension`. On first Chrome setup, the page may be blocked until the user allows the local-network prompt for `rhtv.runninghub.cn`.
+
 ## Safety Rules
 
 - Do not print, store, or commit cookies, tokens, authorization headers, or private payloads.
@@ -70,9 +72,11 @@ If `preflight` reports stale clients but also shows a fresh selected client, use
 - `preflight`: health/client/runtime/capability checks.
 - `capabilities`: live runtime command list.
 - `yjs-snapshot`: read canonical canvas nodes and edges.
-- `canvas-summary`: read compact Agent-oriented canvas state.
-- `find-elements`: query nodes/edges.
+- `canvas-summary`: read compact Agent-oriented canvas state. Use `--full` only when full payloads are necessary.
+- `find-elements`: query nodes/edges. Use `--summary`, `--fields`, and `--limit` on large or private canvases.
+- `suggest-empty-region`: find a conservative placement area before creating new nodes.
 - `create-text-node`: create an `rh-text` node.
+- `create-text-nodes`: create multiple related `rh-text` nodes in one rollbackable operation.
 - `create-image-node`: create an `rh-image` node without running image generation.
 - `create-video-node`: create an `rh-video` node without running video generation; use `--multimodal` when the intended path is reference-conditioned video.
 - `create-reference-from-url`: create a usable reference node from an existing image URL.

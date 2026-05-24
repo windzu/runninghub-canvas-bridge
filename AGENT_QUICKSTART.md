@@ -28,6 +28,12 @@ Important blocking reasons:
 - `STALE_RUNTIME`: refresh the RunningHub canvas page or let the runtime auto-reload on the next command.
 - `MISSING_CAPABILITY`: the live page runtime does not expose the expected Agent commands.
 
+If `NO_PAGE_CLIENT` persists, run:
+
+- `node scripts/rh-bridge.mjs diagnose-extension`
+
+First-time Chrome setup may show a local-network permission prompt for `rhtv.runninghub.cn`. The user must allow it before the page can reach `127.0.0.1`.
+
 ## Upload Local Images
 
 Prefer the one-shot command:
@@ -55,6 +61,8 @@ Use `primaryReference.nodeId` exactly as you would use a locally uploaded refere
 Common primitives:
 
 - `create-text-node`: create a prompt/spec node.
+- `create-text-nodes`: create a coherent set of prompt/spec nodes with one rollback id.
+- `suggest-empty-region`: find a conservative empty area before adding nodes to a crowded canvas.
 - `create-image-node`: create an image generation node without running generation.
 - `create-video-node`: create a video generation node without running generation; add `--multimodal` for reference-conditioned video setup.
 - `connect-nodes`: connect any two existing nodes.
@@ -98,6 +106,7 @@ This scans canvas node outputs for matching `taskId`.
 
 - Do not use `page.eval` in normal workflows.
 - Do not print cookies, tokens, authorization headers, or private payloads.
+- Prefer compact `canvas-summary`, `find-elements --summary`, and field-limited output before requesting full node payloads.
 - Prefer high-level commands over reconstructing RunningHub internals.
 - For paid generation, dry-run and validate first.
 - Treat returned node ids and URLs as the source of truth; do not infer them from the visible UI.

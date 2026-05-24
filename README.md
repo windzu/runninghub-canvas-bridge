@@ -76,6 +76,8 @@ Setup:
 
    `https://rhtv.runninghub.cn/projects/canvas/<canvas_id>`
 
+   On first run, Chrome may ask whether `rhtv.runninghub.cn` can access local devices or services. Allow this prompt so the page can reach the local bridge at `127.0.0.1`.
+
 After the unpacked extension is loaded once, most bridge changes only require restarting the local bridge server if needed and refreshing the RunningHub page. The extension loader fetches the latest runtime from `http://127.0.0.1:8765/bridge-runtime.js`.
 
 Verify:
@@ -119,20 +121,35 @@ Common setup failures:
 - `STALE_RUNTIME`: refresh the RunningHub canvas page so it picks up the latest runtime.
 - `MISSING_CAPABILITY`: refresh the page and verify the extension loaded from the current repository.
 
+Run `npm run bridge -- diagnose-extension` when `NO_PAGE_CLIENT` persists. It reports local runtime reachability, expected extension matches, recent bridge events, selected client routing, and first-run Chrome local-network permission hints.
+
 For autonomous Agent usage, start with `AGENT_QUICKSTART.md`, then use `docs/agent-usage.md` when implementing longer workflows.
+
+### Optional macOS Service
+
+For a persistent local bridge on macOS:
+
+- `npm run service:install`: create and start a user LaunchAgent.
+- `npm run service:status`: check LaunchAgent state and bridge health.
+- `npm run service:restart`: restart the local service.
+- `npm run service:uninstall`: remove the LaunchAgent.
+
+The service runs `server/server.mjs` locally and does not store cookies, tokens, or private payloads.
 
 ## CLI Commands
 
 - `npm run bridge -- health`: check local bridge server state.
+- `npm run bridge -- diagnose-extension`: diagnose extension injection, localhost reachability, selected client routing, and first-run browser permission blockers.
 - `npm run bridge -- clients`: list active bridge clients seen by the local server.
 - `npm run bridge -- events`: list recent bridge events.
 - `npm run bridge -- snapshot`: return a DOM-level graph snapshot from the live canvas page.
 - `npm run bridge -- yjs-snapshot`: return the canonical Yjs canvas nodes and edges.
-- `npm run bridge -- canvas-summary`: return compact Agent-oriented canvas state.
+- `npm run bridge -- canvas-summary`: return compact Agent-oriented canvas state. Use `--full` for full edge output, `--limit <n>`, `--types <csv>`, `--status <csv>`, `--fields <csv>`, `--no-urls`, and `--no-text-preview` to control output size.
 - `npm run bridge -- rollback-list`: list recent rollback points created by mutating commands.
 - `npm run bridge -- rollback [rollbackId]`: restore the latest or selected rollback point.
 - `npm run bridge -- capabilities`: return supported bridge commands and parameter notes.
-- `npm run bridge -- find-elements --query-json '<json>'`: find nodes and edges by id, type, text/title query, or position bounds.
+- `npm run bridge -- find-elements --query-json '<json>'`: find nodes and edges by id, type, text/title query, or position bounds. Use `--summary`, `--fields <csv>`, `--limit <n>`, `--no-outputs`, and `--text-preview-length <n>` for safer compact output.
+- `npm run bridge -- suggest-empty-region --near-text '<text>' --width <n> --height <n> --padding <n>`: suggest a conservative empty region for new Agent-created nodes.
 - `npm run bridge -- get-element <id>`: return one node or edge by id.
 - `npm run bridge -- inspect-node-template <nodeId>`: extract a reusable `create-node` template from an existing node.
 - `npm run bridge -- inspect-model-options --sub-type <subType>`: return observed model options and parameter notes.
@@ -140,6 +157,7 @@ For autonomous Agent usage, start with `AGENT_QUICKSTART.md`, then use `docs/age
 - `npm run bridge -- connections <nodeId> --direction <both|upstream|downstream> --depth <n>`: return connected nodes and edges.
 - `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
 - `npm run bridge -- create-text-node --config-json '<json>'`: create one `rh-text` node.
+- `npm run bridge -- create-text-nodes --config-json '<json-array>'`: create multiple `rh-text` nodes as one operation with one rollback id.
 - `npm run bridge -- create-node --config-json '<json>'`: create one generic canvas node from a node template, type, position, and data.
 - `npm run bridge -- create-video-node --config-json '<json>' [--multimodal]`: create one native `rh-video` node without running generation; use `--multimodal` for reference-conditioned video setup.
 - `npm run bridge -- create-image-node --config-json '<json>'`: create one native `rh-image` text-to-image node without running generation.

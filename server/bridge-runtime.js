@@ -420,6 +420,14 @@
       description: "Create one rh-text node. Supports dryRun."
     },
     {
+      type: "canvas.createTextNodes",
+      description: "Create multiple rh-text nodes as one canvas mutation with one rollback id. Supports dryRun."
+    },
+    {
+      type: "canvas.suggestEmptyRegion",
+      description: "Suggest a conservative empty canvas region near matching text, around a node, or beyond existing content."
+    },
+    {
       type: "canvas.createNode",
       description: "Create one generic canvas node from a provided node template, type, position, and data. Supports dryRun."
     },
@@ -587,7 +595,7 @@
     },
     "multimodal-video": {
       nodeType: "rh-video",
-      defaultModelCode: "multimodal-video-sparkvideo-2.0-multimodal-video",
+      defaultModelCode: "multimodal-video-sparkvideo-2.0",
       defaultRunningHubModelName: "Seedance2.0",
       params: {
         prompt: "string",
@@ -658,7 +666,7 @@
 
   const resolveModelAlias = ({ modelName, modelCode, subType } = {}) => {
     const alias = MODEL_ALIASES[normalizeModelName(modelName)];
-    if (alias) return alias;
+    if (alias && (!subType || alias.subType === subType)) return alias;
     if (modelCode) {
       return {
         subType,
@@ -675,7 +683,7 @@
         requestedModelName: modelName,
         runningHubModelName: defaults.defaultRunningHubModelName,
         modelCode: defaults.defaultModelCode,
-        mappingStatus: modelName ? "fallback-default-for-subtype" : "default-for-subtype"
+        mappingStatus: alias ? "alias-subtype-mismatch-used-subtype-default" : modelName ? "fallback-default-for-subtype" : "default-for-subtype"
       };
     }
     return null;
@@ -725,6 +733,58 @@
     };
   };
 
+  const pickFields = (value, fields) => {
+    if (!Array.isArray(fields) || !fields.length) return value;
+    const out = {};
+    for (const field of fields) {
+      if (field in value) out[field] = value[field];
+    }
+    return out;
+  };
+
+  const parseFields = (fields) =>
+    Array.isArray(fields)
+      ? fields.map(String).filter(Boolean)
+      : String(fields || "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean);
+
+  const compactNodeSummary = (node, { includeUrls = false, includeTextPreview = true, textPreviewLength = 120, fields } = {}) => {
+    const outputs = outputUrlsFromNode(node);
+    const sourceUrls = imageUrlsFromNode(node);
+    const summary = {
+      id: node.id,
+      type: node.type,
+      title: getNodeTitle(node),
+      subType: node.data?.subType,
+      status: node.data?.status,
+      position: node.position,
+      zIndex: node.zIndex,
+      modelCode: node.data?.modelCode,
+      taskId: node.data?.taskId || outputs.find((item) => item.taskId)?.taskId,
+      outputCount: outputs.length,
+      sourceUrlCount: sourceUrls.length,
+      outputs: includeUrls ? outputs : undefined,
+      sourceUrls: includeUrls ? sourceUrls : undefined,
+      textPreview: includeTextPreview ? textFromNode(node).slice(0, Number(textPreviewLength) || 120) : undefined
+    };
+    return pickFields(summary, parseFields(fields));
+  };
+
+  const compactEdgeSummary = (edge, { fields } = {}) =>
+    pickFields(
+      {
+        id: edge.id,
+        type: edge.type,
+        source: edge.source,
+        target: edge.target,
+        sourceHandle: edge.sourceHandle,
+        targetHandle: edge.targetHandle
+      },
+      parseFields(fields)
+    );
+
   const canvasCapabilities = () => ({
     bridgeVersion: 1,
     clientId: CLIENT_ID,
@@ -732,20 +792,26 @@
     commands: COMMAND_CAPABILITIES
   });
 
-  const summarizeCanvas = async ({ includeUrls = true, includeTextPreview = true } = {}) =>
+  const summarizeCanvas = async ({ includeUrls = false, includeTextPreview = true, compact = true, full = false, limit, types, status, fields, textPreviewLength = 120 } = {}) =>
     withCanvasYjs(({ nodes, edges, canvasId }) => {
       const currentNodes = yArrayToJson(nodes);
       const currentEdges = yArrayToJson(edges);
+      const typeSet = types ? new Set(String(types).split(",").map((item) => item.trim()).filter(Boolean)) : null;
+      const statusSet = status ? new Set(String(status).split(",").map((item) => item.trim()).filter(Boolean)) : null;
       const upstreamCounts = new Map();
       const downstreamCounts = new Map();
       for (const edge of currentEdges) {
         if (edge?.target) upstreamCounts.set(edge.target, (upstreamCounts.get(edge.target) || 0) + 1);
         if (edge?.source) downstreamCounts.set(edge.source, (downstreamCounts.get(edge.source) || 0) + 1);
       }
-      const nodeSummaries = currentNodes.map((node) => {
+      const nodeSummaries = currentNodes.filter((node) => {
+        if (typeSet && !typeSet.has(String(node.type || ""))) return false;
+        if (statusSet && !statusSet.has(String(node.data?.status || "unknown"))) return false;
+        return true;
+      }).map((node) => {
         const outputs = outputUrlsFromNode(node);
         const sourceUrls = imageUrlsFromNode(node);
-        return {
+        const summary = {
           id: node.id,
           type: node.type,
           title: getNodeTitle(node),
@@ -759,31 +825,56 @@
           outputCount: Array.isArray(node.data?.output) ? node.data.output.length : 0,
           outputs: includeUrls ? outputs : undefined,
           sourceUrls: includeUrls ? sourceUrls : undefined,
-          textPreview: includeTextPreview ? textFromNode(node).slice(0, 220) : undefined
+          textPreview: includeTextPreview ? textFromNode(node).slice(0, Number(textPreviewLength) || 120) : undefined
         };
+        return pickFields(summary, parseFields(fields));
       });
+      const effectiveLimit = Number.isFinite(Number(limit)) && Number(limit) >= 0 ? Number(limit) : !full && compact ? 50 : undefined;
+      const limitedNodes = effectiveLimit === undefined ? nodeSummaries : nodeSummaries.slice(0, effectiveLimit);
       const byType = {};
       const byStatus = {};
-      for (const node of nodeSummaries) {
+      for (const node of currentNodes) {
         byType[node.type || "unknown"] = (byType[node.type || "unknown"] || 0) + 1;
-        byStatus[node.status || "unknown"] = (byStatus[node.status || "unknown"] || 0) + 1;
+        byStatus[node.data?.status || "unknown"] = (byStatus[node.data?.status || "unknown"] || 0) + 1;
       }
-      return {
+      const result = {
         ok: true,
         canvasId,
-        counts: { nodes: currentNodes.length, edges: currentEdges.length, byType, byStatus },
-        nodes: nodeSummaries,
-        edges: currentEdges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, type: edge.type })),
+        compact: !full && Boolean(compact),
+        counts: { nodes: currentNodes.length, edges: currentEdges.length, byType, byStatus, matchedNodes: nodeSummaries.length, returnedNodes: limitedNodes.length },
+        nodes: !full && Boolean(compact) && effectiveLimit === 0 ? undefined : limitedNodes,
+        edges: full ? currentEdges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, type: edge.type })) : undefined,
+        truncated: effectiveLimit !== undefined && nodeSummaries.length > limitedNodes.length,
         nextActions: []
       };
+      return result;
     });
 
   const findElements = async (query = {}) =>
-    withCanvasYjs(({ nodes, edges, canvasId }) => ({
-      canvasId,
-      query,
-      ...findElementsInSnapshot({ nodes: yArrayToJson(nodes), edges: yArrayToJson(edges) }, query)
-    }));
+    withCanvasYjs(({ nodes, edges, canvasId }) => {
+      const matches = findElementsInSnapshot({ nodes: yArrayToJson(nodes), edges: yArrayToJson(edges) }, query);
+      const limit = Number.isFinite(Number(query.limit)) ? Number(query.limit) : undefined;
+      const summary = query.summary || query.compact || query.fields || query.noOutputs || query.noParams || query.textPreviewLength;
+      const nodeMatches = summary
+        ? matches.nodes.map((node) =>
+            compactNodeSummary(node, {
+              includeUrls: !query.noOutputs && query.includeUrls,
+              includeTextPreview: query.includeTextPreview !== false,
+              textPreviewLength: query.textPreviewLength,
+              fields: query.fields
+            })
+          )
+        : matches.nodes;
+      const edgeMatches = summary ? matches.edges.map((edge) => compactEdgeSummary(edge, { fields: query.edgeFields })) : matches.edges;
+      return {
+        canvasId,
+        query,
+        counts: matches.counts,
+        nodes: limit === undefined ? nodeMatches : nodeMatches.slice(0, limit),
+        edges: limit === undefined ? edgeMatches : edgeMatches.slice(0, limit),
+        limited: limit !== undefined
+      };
+    });
 
   const getElement = async ({ id } = {}) => {
     if (!id) throw new Error("id is required");
@@ -795,6 +886,84 @@
       throw new Error(`Element not found: ${id}`);
     });
   };
+
+  const nodeBounds = (node, padding = 0) => {
+    const x = Number(node?.position?.x) || 0;
+    const y = Number(node?.position?.y) || 0;
+    const width = Number(node?.width || node?.data?.width || node?.style?.width || 360);
+    const height = Number(node?.height || node?.data?.height || node?.style?.height || 240);
+    return { x: x - padding, y: y - padding, width: width + padding * 2, height: height + padding * 2 };
+  };
+
+  const rectsOverlap = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
+  const suggestEmptyRegion = async ({ nearText, aroundNode, direction = "right-down", width = 1800, height = 800, padding = 300, stepX, stepY, maxAttempts = 80 } = {}) =>
+    withCanvasYjs(({ nodes, edges, canvasId }) => {
+      const currentNodes = yArrayToJson(nodes).filter((node) => node?.type !== "group");
+      const currentEdges = yArrayToJson(edges);
+      const paddedBounds = currentNodes.map((node) => ({ node, bounds: nodeBounds(node, Number(padding) || 0) }));
+      const textQuery = normalizeQuery(nearText);
+      const textMatches = textQuery
+        ? currentNodes.filter((node) => normalizeQuery([node.id, getNodeTitle(node), textFromNode(node)].join(" ")).includes(textQuery))
+        : [];
+      const anchor =
+        (aroundNode && currentNodes.find((node) => node.id === aroundNode)) ||
+        textMatches[0] ||
+        currentNodes.reduce((best, node) => ((Number(node?.position?.x) || 0) > (Number(best?.position?.x) || -Infinity) ? node : best), null);
+      const anchorBounds = anchor ? nodeBounds(anchor, 0) : { x: 300, y: 300, width: 0, height: 0 };
+      const dir = String(direction || "right-down");
+      const xSign = dir.includes("left") ? -1 : 1;
+      const ySign = dir.includes("up") ? -1 : 1;
+      const baseX = xSign > 0 ? anchorBounds.x + anchorBounds.width + Number(padding) : anchorBounds.x - Number(width) - Number(padding);
+      const baseY = ySign > 0 ? anchorBounds.y + Number(padding) : anchorBounds.y - Number(height) - Number(padding);
+      const dx = Number(stepX) || Number(width) + Number(padding);
+      const dy = Number(stepY) || Number(height) + Number(padding);
+      let region = null;
+      for (let attempt = 0; attempt < Number(maxAttempts); attempt++) {
+        const ring = Math.floor(Math.sqrt(attempt));
+        const offset = attempt - ring * ring;
+        const candidate = {
+          x: Math.round(baseX + xSign * ring * dx),
+          y: Math.round(baseY + ySign * offset * dy),
+          width: Number(width),
+          height: Number(height)
+        };
+        if (!paddedBounds.some(({ bounds }) => rectsOverlap(candidate, bounds))) {
+          region = candidate;
+          break;
+        }
+      }
+      region ||= {
+        x: Math.round(baseX + xSign * (Number(maxAttempts) + 1) * dx),
+        y: Math.round(baseY),
+        width: Number(width),
+        height: Number(height)
+      };
+      const center = { x: region.x + region.width / 2, y: region.y + region.height / 2 };
+      const nearestNodes = currentNodes
+        .map((node) => {
+          const b = nodeBounds(node, 0);
+          const nodeCenter = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+          return {
+            id: node.id,
+            type: node.type,
+            title: getNodeTitle(node),
+            position: node.position,
+            distance: Math.round(Math.hypot(center.x - nodeCenter.x, center.y - nodeCenter.y))
+          };
+        })
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 8);
+      return {
+        ok: true,
+        canvasId,
+        region,
+        anchor: anchor ? compactNodeSummary(anchor, { includeTextPreview: true, textPreviewLength: 80 }) : null,
+        nearestNodes,
+        counts: { nodes: currentNodes.length, edges: currentEdges.length, textMatches: textMatches.length },
+        warnings: region ? [] : ["No fully empty region found within maxAttempts; returned fallback region."]
+      };
+    });
 
   const inspectNodeTemplate = async ({ nodeId, id, includePosition = false } = {}) => {
     const targetId = nodeId || id;
@@ -1213,10 +1382,11 @@
     const payload = await withCanvasYjs(({ nodes, edges, canvasId }) => {
       const currentNodes = yArrayToJson(nodes);
       const currentEdges = yArrayToJson(edges);
-      if (!currentNodes.some((node) => node?.id === target)) throw new Error(`Node not found: ${target}`);
+      const targetNode = currentNodes.find((node) => node?.id === target);
+      if (!targetNode) throw new Error(`Node not found: ${target}`);
       if (validateReferences) {
-        const validation = videoRunValidation({ targetId: target, nodes: currentNodes, edges: currentEdges, requireReferences: true });
-        if (!validation.ok) throw new Error(`Video run validation failed: ${validation.errors.join("; ")}`);
+        const validation = validateNodeRunSnapshot({ targetId: target, nodes: currentNodes, edges: currentEdges, requireReferences: true });
+        if (!validation.ok) throw new Error(`Node run validation failed: ${validation.errors.join("; ")}`);
       }
       const subgraph = collectUpstreamSubgraph({ targetId: target, nodes: currentNodes, edges: currentEdges, maxDepth: Number(maxDepth) || 8 });
       return {
@@ -1383,6 +1553,58 @@
       };
       doc.transact(() => nodes.push([toYValue(Y, node)]));
       return { nodeId, node };
+    });
+
+  const createTextNodes = async (configs = [], command = {}) =>
+    withCanvasMutation(command, ({ Y, doc, nodes, canvasId }) => {
+      const items = Array.isArray(configs) ? configs : configs?.nodes || configs?.items || [];
+      if (!items.length) throw new Error("config-json must be a non-empty array or object with nodes/items");
+      const currentNodes = yArrayToJson(nodes);
+      const timestamp = Date.now();
+      const maxX = currentNodes.reduce((max, node) => Math.max(max, Number(node?.position?.x) || 0), 0);
+      const baseX = Number(command.x ?? items[0]?.x ?? Math.max(300, maxX + 360));
+      const baseY = Number(command.y ?? items[0]?.y ?? 300);
+      const gapX = Number(command.gapX ?? 420);
+      const gapY = Number(command.gapY ?? 260);
+      const created = items.map((config, index) => {
+        const suffix = Math.random().toString(36).slice(2, 10);
+        const nodeId = config.id || `node-${timestamp}-${index}-${suffix}`;
+        return {
+          id: nodeId,
+          type: "rh-text",
+          position: {
+            x: Number(config.x ?? baseX + (index % 3) * gapX),
+            y: Number(config.y ?? baseY + Math.floor(index / 3) * gapY)
+          },
+          zIndex: currentNodes.length + index + 1,
+          style: {},
+          selectable: true,
+          data: {
+            params: { prompt: "" },
+            modelCode: "text-text-rhart-text-g-3-flash-preview",
+            generateNum: 1,
+            subType: "text-text",
+            textModelListType: "text-text",
+            title: config.title || `Agent 文本节点 ${index + 1}`,
+            agentCreated: true,
+            from: "bridge",
+            agentNodeType: config.agentNodeType || "copywriting",
+            status: "idle",
+            text: config.text || "",
+            maxConnect: { image: null, text: null, video: null },
+            ...(config.data || {})
+          }
+        };
+      });
+      doc.transact(() => nodes.push(created.map((node) => toYValue(Y, node))));
+      return {
+        ok: true,
+        canvasId,
+        operationId: command.id,
+        nodeIds: created.map((node) => node.id),
+        nodes: created.map((node) => compactNodeSummary(node, { includeTextPreview: true, textPreviewLength: 120 })),
+        counts: { createdNodes: created.length }
+      };
     });
 
   const createNode = async (config = {}, command = {}) =>
@@ -1742,14 +1964,30 @@
         connectedEdges.push(edgeResult?.result || edgeResult);
       }
     }
+    const ok = usableReferences.length > 0;
     return {
+      ok,
+      errorCode: ok ? null : "NO_USABLE_REFERENCE",
       stagingNodeId,
       file: uploaded.file,
       attempts: uploaded.attempts,
       usableReferences,
       primaryReference: usableReferences[0] || null,
       connectedEdges,
-      connections: uploaded.connections
+      connections: uploaded.connections,
+      warnings: ok
+        ? []
+        : [
+            "File injection succeeded, but no usable uploaded reference URL was found.",
+            "Increase --wait-ms, verify the rendered upload node completed upload, or use create-reference-from-url with an existing image URL."
+          ],
+      nextActions: ok
+        ? []
+        : [
+            "Retry with a longer --wait-ms.",
+            "Check the RunningHub page for an upload error on the staging image node.",
+            "Use create-reference-from-url if the image is already hosted."
+          ]
     };
   };
 
@@ -2095,6 +2333,8 @@
         result = canvasCapabilities();
       } else if (command.type === "canvas.findElements") {
         result = await findElements(command.query || command);
+      } else if (command.type === "canvas.suggestEmptyRegion") {
+        result = await suggestEmptyRegion(command);
       } else if (command.type === "canvas.getElement") {
         result = await getElement(command);
       } else if (command.type === "canvas.inspectNodeTemplate") {
@@ -2109,6 +2349,8 @@
         result = await createTextWorkflow(command.config || {}, command);
       } else if (command.type === "canvas.createTextNode") {
         result = await createTextNode(command.config || {}, command);
+      } else if (command.type === "canvas.createTextNodes") {
+        result = await createTextNodes(command.config || command.configs || [], command);
       } else if (command.type === "canvas.createNode") {
         result = await createNode(command.config || {}, command);
       } else if (command.type === "canvas.createVideoNode") {

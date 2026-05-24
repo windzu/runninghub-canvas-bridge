@@ -65,6 +65,13 @@ const AGENT_MANIFEST = {
       costsCredits: false,
       supportsDryRun: false
     },
+    "diagnose-extension": {
+      summary: "Return first-run diagnostics for extension injection and localhost reachability.",
+      requiresPageClient: false,
+      mutatesCanvas: false,
+      costsCredits: false,
+      supportsDryRun: false
+    },
     capabilities: {
       summary: "Return runtime command capabilities from the live page.",
       requiresPageClient: true,
@@ -92,6 +99,20 @@ const AGENT_MANIFEST = {
       mutatesCanvas: true,
       costsCredits: false,
       supportsDryRun: true
+    },
+    "create-text-nodes": {
+      summary: "Create multiple rh-text nodes in one canvas mutation with one rollback id.",
+      requiresPageClient: true,
+      mutatesCanvas: true,
+      costsCredits: false,
+      supportsDryRun: true
+    },
+    "suggest-empty-region": {
+      summary: "Suggest a conservative empty canvas region for new Agent-created nodes.",
+      requiresPageClient: true,
+      mutatesCanvas: false,
+      costsCredits: false,
+      supportsDryRun: false
     },
     "create-image-node": {
       summary: "Create an rh-image generation node without running it.",
@@ -217,16 +238,17 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs health
   node scripts/rh-bridge.mjs agent-manifest
   node scripts/rh-bridge.mjs preflight [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs diagnose-extension
   node scripts/rh-bridge.mjs clients
   node scripts/rh-bridge.mjs events [--since <seq>]
   node scripts/rh-bridge.mjs snapshot [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs export-workflow [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs yjs-snapshot [--client <clientId>] [--timeout <ms>]
-  node scripts/rh-bridge.mjs canvas-summary [--client <clientId>] [--timeout <ms>] [--no-urls] [--no-text-preview]
+  node scripts/rh-bridge.mjs canvas-summary [--client <clientId>] [--timeout <ms>] [--compact] [--full] [--limit <n>] [--types <csv>] [--status <csv>] [--fields <csv>] [--no-urls] [--no-text-preview] [--text-preview-length <n>]
   node scripts/rh-bridge.mjs rollback-list [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs rollback [rollbackId] [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs capabilities [--client <clientId>] [--timeout <ms>]
-  node scripts/rh-bridge.mjs find-elements [--client <clientId>] [--timeout <ms>] [--query-json <json>]
+  node scripts/rh-bridge.mjs find-elements [--client <clientId>] [--timeout <ms>] [--query-json <json>] [--summary] [--fields <csv>] [--limit <n>] [--no-outputs] [--no-params] [--text-preview-length <n>]
   node scripts/rh-bridge.mjs get-element <id> [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs inspect-node-template <nodeId> [--client <clientId>] [--timeout <ms>] [--include-position]
   node scripts/rh-bridge.mjs inspect-model-options [--client <clientId>] [--timeout <ms>] [--node-type <type>] [--sub-type <subType>]
@@ -234,6 +256,8 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs connections <nodeId> [--client <clientId>] [--timeout <ms>] [--direction <both|upstream|downstream>] [--depth <n>]
   node scripts/rh-bridge.mjs create-text-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
+  node scripts/rh-bridge.mjs create-text-nodes [--client <clientId>] [--timeout <ms>] [--config-json <json-array>] [--x <n>] [--y <n>] [--gap-x <n>] [--gap-y <n>] [--dry-run]
+  node scripts/rh-bridge.mjs suggest-empty-region [--client <clientId>] [--timeout <ms>] [--near-text <text>] [--around-node <nodeId>] [--direction <right-down|right-up|left-down|left-up>] [--width <n>] [--height <n>] [--padding <n>]
   node scripts/rh-bridge.mjs create-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-video-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--multimodal] [--dry-run]
   node scripts/rh-bridge.mjs create-image-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
@@ -320,7 +344,24 @@ const jsonOption = (name, fallback = {}) => {
 };
 
 const request = async (path, init) => {
-  const response = await fetch(new URL(path, bridge), init);
+  let response;
+  try {
+    response = await fetch(new URL(path, bridge), init);
+  } catch (error) {
+    fail(
+      JSON.stringify(
+        {
+          ok: false,
+          errorCode: "BRIDGE_OFFLINE",
+          error: error?.message || String(error),
+          bridgeUrl: bridge,
+          nextActions: ["Start the local bridge server with `npm run start` or `node server/server.mjs`, then retry the command."]
+        },
+        null,
+        2
+      )
+    );
+  }
   const text = await response.text();
   let value;
   try {
@@ -395,11 +436,18 @@ const preflight = async ({ clientId, timeoutMs }) => {
 
   const clients = await safeRequest("/clients");
   const liveClients = clients.ok ? clients.value || [] : [];
-  const selectedClient = clientId ? liveClients.find((client) => client.clientId === clientId) : liveClients[0];
+  const selectedClient = clientId ? liveClients.find((client) => client.clientId === clientId) : liveClients.find((client) => client.selected) || liveClients[0];
+  const sameCanvasClients = selectedClient?.canvasId ? liveClients.filter((client) => client.canvasId === selectedClient.canvasId) : [];
   checks.pageClient = {
     ok: Boolean(selectedClient),
     selectedClientId: selectedClient?.clientId,
+    selectionReason: selectedClient?.selectionReason,
     connectedClients: liveClients.length,
+    sameCanvasClients: sameCanvasClients.length,
+    olderClientsIgnored: liveClients
+      .filter((client) => client.clientId !== selectedClient?.clientId)
+      .slice(0, 10)
+      .map((client) => ({ clientId: client.clientId, canvasId: client.canvasId, runtimeFreshness: client.runtimeFreshness })),
     href: selectedClient?.href,
     title: selectedClient?.title
   };
@@ -448,7 +496,7 @@ const preflight = async ({ clientId, timeoutMs }) => {
     manifestVersion: MANIFEST_VERSION,
     nextActions: blockingReasons.length
       ? blockingReasons.map((reason) => {
-          if (reason === "NO_PAGE_CLIENT") return "Open a logged-in RunningHub canvas page with the Chrome extension enabled, then rerun preflight.";
+          if (reason === "NO_PAGE_CLIENT") return "Open a logged-in RunningHub canvas page with the Chrome extension enabled, allow Chrome local-network access if prompted, then rerun preflight or diagnose-extension.";
           if (reason === "STALE_RUNTIME") return "Reload the RunningHub canvas tab so it picks up the latest bridge runtime.";
           if (reason === "MISSING_CAPABILITY") return "Reload the RunningHub canvas tab and verify the extension injected the latest runtime.";
           return `Resolve ${reason}, then rerun preflight.`;
@@ -476,7 +524,11 @@ const enqueue = async (command, timeoutMs) => {
   });
   if (!timeoutMs) return accepted;
   const event = await waitForResult(accepted.id, timeoutMs);
-  return event.result ?? event;
+  const result = event.result ?? event;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    return { commandRoute: accepted.route, ...result };
+  }
+  return { commandRoute: accepted.route, result };
 };
 
 if (!commandName || commandName === "-h" || commandName === "--help") {
@@ -510,6 +562,21 @@ const pollTimeout = option("--poll-timeout", String(timeoutMs));
 const pollInterval = option("--poll-interval", "3000");
 const connectToNodeId = option("--connect-to-node");
 const urlOption = option("--url");
+const nearText = option("--near-text");
+const aroundNode = option("--around-node");
+const regionDirection = option("--direction", direction);
+const width = option("--width");
+const height = option("--height");
+const padding = option("--padding");
+const x = option("--x");
+const y = option("--y");
+const gapX = option("--gap-x");
+const gapY = option("--gap-y");
+const limit = option("--limit");
+const types = option("--types");
+const status = option("--status");
+const fields = option("--fields");
+const textPreviewLength = option("--text-preview-length");
 const dryRun = flag("--dry-run");
 const includePosition = flag("--include-position");
 const validateReferences = flag("--validate-references");
@@ -518,6 +585,11 @@ const allowNoOutput = flag("--allow-no-output");
 const requireReferences = flag("--require-references");
 const noUrls = flag("--no-urls");
 const noTextPreview = flag("--no-text-preview");
+const noOutputs = flag("--no-outputs");
+const noParams = flag("--no-params");
+const compact = flag("--compact");
+const full = flag("--full");
+const summary = flag("--summary");
 const multimodal = flag("--multimodal");
 const baseCommand = clientId ? { clientId } : {};
 
@@ -527,6 +599,8 @@ if (commandName === "agent-manifest") {
   print(await preflight({ clientId, timeoutMs }));
 } else if (commandName === "health") {
   print(await request("/health"));
+} else if (commandName === "diagnose-extension") {
+  print(await request("/diagnose-extension"));
 } else if (commandName === "clients") {
   print(await request("/clients"));
 } else if (commandName === "events") {
@@ -539,7 +613,24 @@ if (commandName === "agent-manifest") {
 } else if (commandName === "yjs-snapshot") {
   print(await enqueue({ ...baseCommand, type: "canvas.yjsSnapshot" }, timeoutMs));
 } else if (commandName === "canvas-summary") {
-  print(await enqueue({ ...baseCommand, type: "canvas.summary", includeUrls: !noUrls, includeTextPreview: !noTextPreview }, timeoutMs));
+  print(
+    await enqueue(
+      {
+        ...baseCommand,
+        type: "canvas.summary",
+        compact: compact || !full,
+        full,
+        limit: limit === undefined ? undefined : Number(limit),
+        types,
+        status,
+        fields,
+        textPreviewLength: textPreviewLength === undefined ? undefined : Number(textPreviewLength),
+        includeUrls: full && !noUrls,
+        includeTextPreview: !noTextPreview
+      },
+      timeoutMs
+    )
+  );
 } else if (commandName === "rollback-list") {
   print(await enqueue({ ...baseCommand, type: "canvas.rollbackList" }, timeoutMs));
 } else if (commandName === "rollback") {
@@ -548,7 +639,15 @@ if (commandName === "agent-manifest") {
 } else if (commandName === "capabilities") {
   print(await enqueue({ ...baseCommand, type: "canvas.capabilities" }, timeoutMs));
 } else if (commandName === "find-elements") {
-  const query = jsonOption("--query-json");
+  const query = {
+    ...jsonOption("--query-json"),
+    ...(summary ? { summary: true } : {}),
+    ...(fields ? { fields } : {}),
+    ...(limit === undefined ? {} : { limit: Number(limit) }),
+    ...(noOutputs ? { noOutputs: true } : {}),
+    ...(noParams ? { noParams: true } : {}),
+    ...(textPreviewLength === undefined ? {} : { textPreviewLength: Number(textPreviewLength) })
+  };
   print(await enqueue({ ...baseCommand, type: "canvas.findElements", query }, timeoutMs));
 } else if (commandName === "get-element") {
   const id = args.shift();
@@ -574,6 +673,39 @@ if (commandName === "agent-manifest") {
 } else if (commandName === "create-text-node") {
   const config = configOption();
   print(await enqueue({ ...baseCommand, type: "canvas.createTextNode", config, dryRun }, timeoutMs));
+} else if (commandName === "create-text-nodes") {
+  const config = configOption([]);
+  print(
+    await enqueue(
+      {
+        ...baseCommand,
+        type: "canvas.createTextNodes",
+        config,
+        x: x === undefined ? undefined : Number(x),
+        y: y === undefined ? undefined : Number(y),
+        gapX: gapX === undefined ? undefined : Number(gapX),
+        gapY: gapY === undefined ? undefined : Number(gapY),
+        dryRun
+      },
+      timeoutMs
+    )
+  );
+} else if (commandName === "suggest-empty-region") {
+  print(
+    await enqueue(
+      {
+        ...baseCommand,
+        type: "canvas.suggestEmptyRegion",
+        nearText,
+        aroundNode,
+        direction: regionDirection,
+        width: width === undefined ? undefined : Number(width),
+        height: height === undefined ? undefined : Number(height),
+        padding: padding === undefined ? undefined : Number(padding)
+      },
+      timeoutMs
+    )
+  );
 } else if (commandName === "create-node") {
   const config = configOption();
   print(await enqueue({ ...baseCommand, type: "canvas.createNode", config, dryRun }, timeoutMs));
