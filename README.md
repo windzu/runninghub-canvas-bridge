@@ -23,7 +23,7 @@ Implemented:
 - Basic DOM graph snapshot command.
 - Page-context API POST command that uses the browser session without exporting cookies.
 - Local CLI for health checks, event inspection, graph snapshots, and first canvas API wrappers.
-- Yjs/Nexus canvas commands for reading, creating, updating, and deleting basic text workflows.
+- Yjs/Nexus canvas commands for querying, creating, updating, moving, connecting, and deleting basic canvas elements.
 
 Not implemented yet:
 
@@ -82,17 +82,26 @@ The CLI waits for command results by default. If multiple RunningHub tabs are op
 
 `npm run bridge -- snapshot --client <clientId>`
 
+When no `--client` is passed, the server routes commands to the most recently active RunningHub canvas tab. Use `npm run bridge -- clients` to inspect active page clients.
+
 ## CLI Commands
 
 - `npm run bridge -- health`: check local bridge server state.
+- `npm run bridge -- clients`: list active bridge clients seen by the local server.
 - `npm run bridge -- events`: list recent bridge events.
 - `npm run bridge -- snapshot`: return a DOM-level graph snapshot from the live canvas page.
 - `npm run bridge -- yjs-snapshot`: return the canonical Yjs canvas nodes and edges.
+- `npm run bridge -- capabilities`: return supported bridge commands and parameter notes.
+- `npm run bridge -- find-elements --query-json '<json>'`: find nodes and edges by id, type, text/title query, or position bounds.
+- `npm run bridge -- get-element <id>`: return one node or edge by id.
+- `npm run bridge -- connections <nodeId> --direction <both|upstream|downstream> --depth <n>`: return connected nodes and edges.
 - `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
 - `npm run bridge -- create-text-node --config-json '<json>'`: create one `rh-text` node.
 - `npm run bridge -- connect-nodes <sourceId> <targetId>`: create one edge between two nodes.
+- `npm run bridge -- update-node <nodeId> --patch-json '<json>' --data-json '<json>'`: update node fields such as position, data, style, zIndex, width, and height.
 - `npm run bridge -- update-node-text <nodeId> <text> --title '<title>'`: update a text node through the canvas Yjs room.
 - `npm run bridge -- move-node <nodeId> <x> <y>`: update a node position.
+- `npm run bridge -- move-nodes <id...> --dx <n> --dy <n>`: move multiple nodes by delta, or pass `--positions-json` for explicit positions.
 - `npm run bridge -- delete-elements <id...>`: delete nodes, groups, and edges by id through the canvas Yjs room.
 - `npm run bridge -- get-canvas-detail <canvasId>`: call `/canvas/getCanvasDetail` inside the logged-in page context.
 - `npm run bridge -- workflow-list <canvasId>`: call `/canvas/workflow/list` inside the logged-in page context.

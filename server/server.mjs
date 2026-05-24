@@ -7,6 +7,7 @@ const RUNTIME_PATH = new URL("./bridge-runtime.js", import.meta.url);
 const events = [];
 const pendingCommands = new Map();
 const commandResults = new Map();
+const clients = new Map();
 
 const json = (res, status, value) => {
   const body = JSON.stringify(value, null, 2);
@@ -56,6 +57,15 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const event = JSON.parse(body || "{}");
       events.push(event);
+      if (event.clientId) {
+        clients.set(event.clientId, {
+          clientId: event.clientId,
+          href: event.href,
+          title: event.title,
+          lastSeq: event.seq,
+          lastSeenAt: Date.now()
+        });
+      }
       if (events.length > 1000) events.splice(0, events.length - 1000);
       if (event.kind === "command.result" && event.commandId) commandResults.set(event.commandId, event);
       return json(res, 200, { ok: true });
@@ -66,15 +76,26 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, events.filter((event) => Number(event.seq || 0) > since));
     }
 
+    if (req.method === "GET" && url.pathname === "/clients") {
+      return json(
+        res,
+        200,
+        [...clients.values()].sort((a, b) => Number(b.lastSeenAt || 0) - Number(a.lastSeenAt || 0))
+      );
+    }
+
     if (req.method === "POST" && url.pathname === "/command") {
       const body = await readBody(req);
       const command = JSON.parse(body || "{}");
       command.id ||= randomUUID();
-      const clientId = command.clientId || "broadcast";
+      const latestClient = [...clients.values()]
+        .filter((client) => /runninghub\.cn\/projects\/canvas/.test(String(client.href || "")))
+        .sort((a, b) => Number(b.lastSeenAt || 0) - Number(a.lastSeenAt || 0))[0];
+      const clientId = command.clientId || (command.broadcast ? "broadcast" : latestClient?.clientId) || "broadcast";
       const queue = pendingCommands.get(clientId) || [];
       queue.push(command);
       pendingCommands.set(clientId, queue);
-      return json(res, 200, { ok: true, id: command.id });
+      return json(res, 200, { ok: true, id: command.id, clientId });
     }
 
     if (req.method === "GET" && url.pathname === "/commands") {

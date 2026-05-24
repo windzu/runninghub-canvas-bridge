@@ -6,15 +6,22 @@ const bridge = process.env.RH_BRIDGE_URL || DEFAULT_BRIDGE;
 
 const usage = `Usage:
   node scripts/rh-bridge.mjs health
+  node scripts/rh-bridge.mjs clients
   node scripts/rh-bridge.mjs events [--since <seq>]
   node scripts/rh-bridge.mjs snapshot [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs export-workflow [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs yjs-snapshot [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs capabilities [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs find-elements [--client <clientId>] [--timeout <ms>] [--query-json <json>]
+  node scripts/rh-bridge.mjs get-element <id> [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs connections <nodeId> [--client <clientId>] [--timeout <ms>] [--direction <both|upstream|downstream>] [--depth <n>]
   node scripts/rh-bridge.mjs create-text-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>]
   node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>]
   node scripts/rh-bridge.mjs connect-nodes <sourceId> <targetId> [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs update-node <nodeId> [--client <clientId>] [--timeout <ms>] [--patch-json <json>] [--data-json <json>] [--title <title>]
   node scripts/rh-bridge.mjs update-node-text <nodeId> <text> [--client <clientId>] [--timeout <ms>] [--title <title>]
   node scripts/rh-bridge.mjs move-node <nodeId> <x> <y> [--client <clientId>] [--timeout <ms>]
+  node scripts/rh-bridge.mjs move-nodes <id...> [--client <clientId>] [--timeout <ms>] [--dx <n>] [--dy <n>] [--positions-json <json>]
   node scripts/rh-bridge.mjs delete-elements <id...> [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs get-canvas-detail <canvasId> [--timeout <ms>] [--body-json <json>]
   node scripts/rh-bridge.mjs workflow-list <canvasId> [--timeout <ms>] [--body-json <json>]
@@ -59,6 +66,16 @@ const configOption = (fallback = {}) => {
     return JSON.parse(raw);
   } catch (error) {
     fail(`Invalid --config-json: ${error.message}`);
+  }
+};
+
+const jsonOption = (name, fallback = {}) => {
+  const raw = option(name);
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    fail(`Invalid ${name}: ${error.message}`);
   }
 };
 
@@ -109,10 +126,16 @@ if (!commandName || commandName === "-h" || commandName === "--help") {
 const timeoutMs = Number(option("--timeout", "15000"));
 const clientId = option("--client");
 const title = option("--title");
+const direction = option("--direction", "both");
+const depth = option("--depth", "1");
+const dx = option("--dx", "0");
+const dy = option("--dy", "0");
 const baseCommand = clientId ? { clientId } : {};
 
 if (commandName === "health") {
   print(await request("/health"));
+} else if (commandName === "clients") {
+  print(await request("/clients"));
 } else if (commandName === "events") {
   const since = option("--since", "0");
   print(await request(`/events?since=${encodeURIComponent(since)}`));
@@ -122,6 +145,19 @@ if (commandName === "health") {
   print(await enqueue({ ...baseCommand, type: "canvas.exportWorkflow" }, timeoutMs));
 } else if (commandName === "yjs-snapshot") {
   print(await enqueue({ ...baseCommand, type: "canvas.yjsSnapshot" }, timeoutMs));
+} else if (commandName === "capabilities") {
+  print(await enqueue({ ...baseCommand, type: "canvas.capabilities" }, timeoutMs));
+} else if (commandName === "find-elements") {
+  const query = jsonOption("--query-json");
+  print(await enqueue({ ...baseCommand, type: "canvas.findElements", query }, timeoutMs));
+} else if (commandName === "get-element") {
+  const id = args.shift();
+  if (!id) fail("Missing id");
+  print(await enqueue({ ...baseCommand, type: "canvas.getElement", id }, timeoutMs));
+} else if (commandName === "connections") {
+  const nodeId = args.shift();
+  if (!nodeId) fail("Missing nodeId");
+  print(await enqueue({ ...baseCommand, type: "canvas.getConnections", nodeId, direction, depth }, timeoutMs));
 } else if (commandName === "create-text-workflow") {
   const config = configOption();
   print(await enqueue({ ...baseCommand, type: "canvas.createTextWorkflow", config }, timeoutMs));
@@ -134,6 +170,12 @@ if (commandName === "health") {
   if (!source) fail("Missing sourceId");
   if (!target) fail("Missing targetId");
   print(await enqueue({ ...baseCommand, type: "canvas.connectNodes", source, target }, timeoutMs));
+} else if (commandName === "update-node") {
+  const nodeId = args.shift();
+  if (!nodeId) fail("Missing nodeId");
+  const patch = jsonOption("--patch-json");
+  const data = jsonOption("--data-json", undefined);
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNode", nodeId, patch, data, title }, timeoutMs));
 } else if (commandName === "update-node-text") {
   const nodeId = args.shift();
   const text = args.shift();
@@ -148,6 +190,11 @@ if (commandName === "health") {
   if (x === undefined) fail("Missing x");
   if (y === undefined) fail("Missing y");
   print(await enqueue({ ...baseCommand, type: "canvas.updateNodePosition", nodeId, x, y }, timeoutMs));
+} else if (commandName === "move-nodes") {
+  const positions = jsonOption("--positions-json", {});
+  const ids = args.splice(0);
+  if (!ids.length) fail("Missing id");
+  print(await enqueue({ ...baseCommand, type: "canvas.moveNodes", ids, dx, dy, positions }, timeoutMs));
 } else if (commandName === "delete-elements") {
   const ids = args.splice(0);
   if (!ids.length) fail("Missing id");

@@ -186,6 +186,204 @@
     return Array.isArray(array.toJSON?.()) ? array.toJSON() : [];
   };
 
+  const COMMAND_CAPABILITIES = [
+    {
+      type: "graph.snapshot",
+      description: "Read DOM-level Vue Flow nodes and edges from the visible page."
+    },
+    {
+      type: "canvas.yjsSnapshot",
+      description: "Read canonical Yjs canvas nodes and edges."
+    },
+    {
+      type: "canvas.findElements",
+      description: "Find nodes and edges by id, type, text/title query, or position bounds.",
+      params: {
+        kind: "all | nodes | edges",
+        q: "case-insensitive text query over node title/text/type/id and edge id/source/target",
+        ids: "array of node or edge ids",
+        type: "node or edge type",
+        bounds: "{ xMin, xMax, yMin, yMax } for node positions",
+        includeEdges: "when kind is nodes, include edges connected to matched nodes"
+      }
+    },
+    {
+      type: "canvas.getElement",
+      description: "Return one node or edge by id."
+    },
+    {
+      type: "canvas.getConnections",
+      description: "Return upstream/downstream node and edge relationships for one or more nodes."
+    },
+    {
+      type: "canvas.createTextNode",
+      description: "Create one rh-text node."
+    },
+    {
+      type: "canvas.createTextWorkflow",
+      description: "Create a minimal two-node text workflow with one group and one edge."
+    },
+    {
+      type: "canvas.connectNodes",
+      description: "Create an edge between two existing nodes."
+    },
+    {
+      type: "canvas.updateNode",
+      description: "Update a node's position, data, style, zIndex, dimensions, title, or text."
+    },
+    {
+      type: "canvas.updateNodePosition",
+      description: "Move one node to an absolute x/y position."
+    },
+    {
+      type: "canvas.moveNodes",
+      description: "Move multiple nodes by delta or explicit positions."
+    },
+    {
+      type: "canvas.updateNodeText",
+      description: "Update a text node's data.text and optional data.title."
+    },
+    {
+      type: "canvas.deleteElements",
+      description: "Delete nodes, groups, and edges by id. Edges connected to deleted nodes are removed too."
+    },
+    {
+      type: "canvas.getDetail",
+      description: "Call /canvas/getCanvasDetail inside the logged-in page context."
+    },
+    {
+      type: "canvas.workflowList",
+      description: "Call /canvas/workflow/list inside the logged-in page context."
+    },
+    {
+      type: "api.post",
+      description: "Run an arbitrary POST inside the logged-in page context."
+    },
+    {
+      type: "page.eval",
+      description: "Dangerous local debugging hook. Keep local-only."
+    }
+  ];
+
+  const getNodeTitle = (node) => String(node?.data?.title || node?.data?.groupName || node?.label || "");
+  const getNodeText = (node) => String(node?.data?.text || node?.data?.params?.prompt || node?.text || "");
+  const normalizeQuery = (value) => String(value || "").trim().toLowerCase();
+
+  const withinBounds = (node, bounds = {}) => {
+    if (!bounds || typeof bounds !== "object") return true;
+    const x = Number(node?.position?.x);
+    const y = Number(node?.position?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (bounds.xMin !== undefined && x < Number(bounds.xMin)) return false;
+    if (bounds.xMax !== undefined && x > Number(bounds.xMax)) return false;
+    if (bounds.yMin !== undefined && y < Number(bounds.yMin)) return false;
+    if (bounds.yMax !== undefined && y > Number(bounds.yMax)) return false;
+    return true;
+  };
+
+  const matchElement = (element, query = {}, kind) => {
+    const ids = new Set([...(query.ids || []), query.id].filter(Boolean).map(String));
+    if (ids.size && !ids.has(String(element?.id))) return false;
+    if (query.type && String(element?.type || "") !== String(query.type)) return false;
+    if (kind === "nodes" && query.bounds && !withinBounds(element, query.bounds)) return false;
+
+    const q = normalizeQuery(query.q || query.text || query.title);
+    if (!q) return true;
+    const haystack =
+      kind === "edges"
+        ? [element?.id, element?.type, element?.source, element?.target, element?.sourceHandle, element?.targetHandle]
+        : [element?.id, element?.type, getNodeTitle(element), getNodeText(element), element?.data?.agentNodeType, element?.data?.modelCode];
+    return haystack.some((part) => normalizeQuery(part).includes(q));
+  };
+
+  const findElementsInSnapshot = ({ nodes, edges }, query = {}) => {
+    const kind = query.kind || "all";
+    const matchedNodes = kind === "edges" ? [] : nodes.filter((node) => matchElement(node, query, "nodes"));
+    const matchedNodeIds = new Set(matchedNodes.map((node) => node.id));
+    const matchedEdges =
+      kind === "nodes"
+        ? query.includeEdges
+          ? edges.filter((edge) => matchedNodeIds.has(edge?.source) || matchedNodeIds.has(edge?.target))
+          : []
+        : edges.filter((edge) => matchElement(edge, query, "edges"));
+    return {
+      nodes: matchedNodes,
+      edges: matchedEdges,
+      counts: { nodes: matchedNodes.length, edges: matchedEdges.length }
+    };
+  };
+
+  const canvasCapabilities = () => ({
+    bridgeVersion: 1,
+    clientId: CLIENT_ID,
+    href: location.href,
+    commands: COMMAND_CAPABILITIES
+  });
+
+  const findElements = async (query = {}) =>
+    withCanvasYjs(({ nodes, edges, canvasId }) => ({
+      canvasId,
+      query,
+      ...findElementsInSnapshot({ nodes: yArrayToJson(nodes), edges: yArrayToJson(edges) }, query)
+    }));
+
+  const getElement = async ({ id } = {}) => {
+    if (!id) throw new Error("id is required");
+    return withCanvasYjs(({ nodes, edges, canvasId }) => {
+      const node = yArrayToJson(nodes).find((item) => item?.id === id);
+      if (node) return { canvasId, kind: "node", element: node };
+      const edge = yArrayToJson(edges).find((item) => item?.id === id);
+      if (edge) return { canvasId, kind: "edge", element: edge };
+      throw new Error(`Element not found: ${id}`);
+    });
+  };
+
+  const getConnections = async ({ nodeId, nodeIds = [], direction = "both", depth = 1 } = {}) => {
+    const seeds = [...nodeIds, nodeId].filter(Boolean);
+    if (!seeds.length) throw new Error("nodeId or nodeIds is required");
+    const maxDepth = Math.max(1, Number(depth) || 1);
+    return withCanvasYjs(({ nodes, edges, canvasId }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const currentEdges = yArrayToJson(edges);
+      const nodeById = new Map(currentNodes.map((node) => [node?.id, node]).filter(([id]) => id));
+      const seenNodes = new Set(seeds);
+      const seenEdges = new Set();
+      let frontier = seeds;
+
+      for (let level = 0; level < maxDepth; level++) {
+        const next = [];
+        for (const edge of currentEdges) {
+          const downstream = (direction === "both" || direction === "downstream") && frontier.includes(edge?.source);
+          const upstream = (direction === "both" || direction === "upstream") && frontier.includes(edge?.target);
+          if (!downstream && !upstream) continue;
+          if (edge?.id) seenEdges.add(edge.id);
+          const connectedId = downstream ? edge?.target : edge?.source;
+          if (connectedId && !seenNodes.has(connectedId)) {
+            seenNodes.add(connectedId);
+            next.push(connectedId);
+          }
+        }
+        frontier = next;
+        if (!frontier.length) break;
+      }
+
+      return {
+        canvasId,
+        seeds,
+        direction,
+        depth: maxDepth,
+        nodes: [...seenNodes].map((id) => nodeById.get(id) || { id, missing: true }),
+        edges: currentEdges.filter((edge) => seenEdges.has(edge?.id)),
+        counts: { nodes: seenNodes.size, edges: seenEdges.size }
+      };
+    });
+  };
+
+  const mergePlainObject = (target, patch) => {
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) return target;
+    return { ...(target || {}), ...patch };
+  };
+
   const createTextWorkflow = async (config = {}) =>
     withCanvasYjs(({ Y, doc, nodes, edges }) => {
       const currentNodes = yArrayToJson(nodes);
@@ -420,6 +618,81 @@
     });
   };
 
+  const updateNode = async ({ nodeId, id, patch = {}, position, data, style, title, text, zIndex, width, height } = {}) => {
+    const targetId = nodeId || id;
+    if (!targetId) throw new Error("nodeId is required");
+    return withCanvasYjs(({ Y, doc, nodes }) => {
+      let updatedNode;
+      doc.transact(() => {
+        for (let index = 0; index < nodes.length; index++) {
+          const node = nodes.get(index);
+          const nodeJson = node?.toJSON?.() || node;
+          if (nodeJson?.id !== targetId) continue;
+
+          const next = {
+            ...nodeJson,
+            ...patch,
+            data: mergePlainObject(nodeJson.data, patch.data),
+            style: mergePlainObject(nodeJson.style, patch.style),
+            position: mergePlainObject(nodeJson.position, patch.position)
+          };
+          if (position) next.position = mergePlainObject(next.position, position);
+          if (data) next.data = mergePlainObject(next.data, data);
+          if (style) next.style = mergePlainObject(next.style, style);
+          if (title !== undefined || text !== undefined) {
+            next.data ||= {};
+            if (title !== undefined) next.data.title = title;
+            if (text !== undefined) next.data.text = text;
+          }
+          if (zIndex !== undefined) next.zIndex = Number(zIndex);
+          if (width !== undefined) next.width = Number(width);
+          if (height !== undefined) next.height = Number(height);
+
+          nodes.delete(index, 1);
+          nodes.insert(index, [toYValue(Y, next)]);
+          updatedNode = next;
+          break;
+        }
+      });
+      if (!updatedNode) throw new Error(`Node not found: ${targetId}`);
+      return { updated: true, nodeId: targetId, node: updatedNode };
+    });
+  };
+
+  const moveNodes = async ({ nodeIds = [], ids = [], dx = 0, dy = 0, positions = {} } = {}) => {
+    const targetIds = [...nodeIds, ...ids].filter(Boolean);
+    if (!targetIds.length) throw new Error("nodeIds or ids is required");
+    const targetSet = new Set(targetIds);
+    const deltaX = Number(dx) || 0;
+    const deltaY = Number(dy) || 0;
+    return withCanvasYjs(({ Y, doc, nodes }) => {
+      const moved = [];
+      doc.transact(() => {
+        for (let index = 0; index < nodes.length; index++) {
+          const node = nodes.get(index);
+          const nodeJson = node?.toJSON?.() || node;
+          if (!targetSet.has(nodeJson?.id)) continue;
+
+          const currentPosition = nodeJson.position || {};
+          const explicit = positions[nodeJson.id] || {};
+          const next = {
+            ...nodeJson,
+            position: {
+              ...currentPosition,
+              x: explicit.x !== undefined ? Number(explicit.x) : (Number(currentPosition.x) || 0) + deltaX,
+              y: explicit.y !== undefined ? Number(explicit.y) : (Number(currentPosition.y) || 0) + deltaY
+            }
+          };
+          nodes.delete(index, 1);
+          nodes.insert(index, [toYValue(Y, next)]);
+          moved.push({ nodeId: nodeJson.id, from: currentPosition, to: next.position });
+        }
+      });
+      const missing = targetIds.filter((id) => !moved.some((item) => item.nodeId === id));
+      return { moved, missing, counts: { moved: moved.length, missing: missing.length } };
+    });
+  };
+
   const deleteElements = async ({ ids = [], nodeIds = [], edgeIds = [] } = {}) =>
     withCanvasYjs(({ nodes, edges }) => {
       const nodeSet = new Set([...ids, ...nodeIds].filter(Boolean));
@@ -459,14 +732,26 @@
           nodes: yArrayToJson(nodes),
           edges: yArrayToJson(edges)
         }));
+      } else if (command.type === "canvas.capabilities") {
+        result = canvasCapabilities();
+      } else if (command.type === "canvas.findElements") {
+        result = await findElements(command.query || command);
+      } else if (command.type === "canvas.getElement") {
+        result = await getElement(command);
+      } else if (command.type === "canvas.getConnections") {
+        result = await getConnections(command);
       } else if (command.type === "canvas.createTextWorkflow") {
         result = await createTextWorkflow(command.config || {});
       } else if (command.type === "canvas.createTextNode") {
         result = await createTextNode(command.config || {});
       } else if (command.type === "canvas.connectNodes") {
         result = await connectNodes(command);
+      } else if (command.type === "canvas.updateNode") {
+        result = await updateNode(command);
       } else if (command.type === "canvas.updateNodePosition") {
         result = await updateNodePosition(command);
+      } else if (command.type === "canvas.moveNodes") {
+        result = await moveNodes(command);
       } else if (command.type === "canvas.updateNodeText") {
         result = await updateNodeText(command);
       } else if (command.type === "canvas.deleteElements") {
@@ -617,21 +902,8 @@
   window.__RUNNINGHUB_CANVAS_BRIDGE__ = {
     clientId: CLIENT_ID,
     graph: summarizeGraph,
-    commands: [
-      "graph.snapshot",
-      "canvas.exportWorkflow",
-      "canvas.yjsSnapshot",
-      "canvas.createTextWorkflow",
-      "canvas.createTextNode",
-      "canvas.connectNodes",
-      "canvas.updateNodePosition",
-      "canvas.updateNodeText",
-      "canvas.deleteElements",
-      "canvas.getDetail",
-      "canvas.workflowList",
-      "api.post",
-      "page.eval"
-    ]
+    capabilities: canvasCapabilities,
+    commands: COMMAND_CAPABILITIES.map((capability) => capability.type)
   };
 
   postEvent({ kind: "bridge.installed", graph: summarizeGraph() });
