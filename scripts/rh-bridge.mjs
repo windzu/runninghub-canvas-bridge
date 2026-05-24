@@ -18,6 +18,7 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs get-element <id> [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs inspect-node-template <nodeId> [--client <clientId>] [--timeout <ms>] [--include-position]
   node scripts/rh-bridge.mjs inspect-model-options [--client <clientId>] [--timeout <ms>] [--node-type <type>] [--sub-type <subType>]
+  node scripts/rh-bridge.mjs resolve-model-alias <modelName> [--client <clientId>] [--timeout <ms>] [--sub-type <subType>]
   node scripts/rh-bridge.mjs connections <nodeId> [--client <clientId>] [--timeout <ms>] [--direction <both|upstream|downstream>] [--depth <n>]
   node scripts/rh-bridge.mjs create-text-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
@@ -186,6 +187,10 @@ if (commandName === "health") {
   print(await enqueue({ ...baseCommand, type: "canvas.inspectNodeTemplate", nodeId, includePosition }, timeoutMs));
 } else if (commandName === "inspect-model-options") {
   print(await enqueue({ ...baseCommand, type: "canvas.inspectModelOptions", nodeType, subType }, timeoutMs));
+} else if (commandName === "resolve-model-alias") {
+  const modelName = args.shift();
+  if (!modelName) fail("Missing modelName");
+  print(await enqueue({ ...baseCommand, type: "canvas.resolveModelAlias", modelName, subType }, timeoutMs));
 } else if (commandName === "connections") {
   const nodeId = args.shift();
   if (!nodeId) fail("Missing nodeId");

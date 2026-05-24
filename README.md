@@ -98,6 +98,7 @@ When no `--client` is passed, the server routes commands to the most recently ac
 - `npm run bridge -- get-element <id>`: return one node or edge by id.
 - `npm run bridge -- inspect-node-template <nodeId>`: extract a reusable `create-node` template from an existing node.
 - `npm run bridge -- inspect-model-options --sub-type <subType>`: return observed model options and parameter notes.
+- `npm run bridge -- resolve-model-alias <modelName>`: map a user-facing model name such as `GPT Image 2` to the observed RunningHub model name and `modelCode`.
 - `npm run bridge -- connections <nodeId> --direction <both|upstream|downstream> --depth <n>`: return connected nodes and edges.
 - `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
 - `npm run bridge -- create-text-node --config-json '<json>'`: create one `rh-text` node.

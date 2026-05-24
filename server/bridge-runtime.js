@@ -384,6 +384,10 @@
       description: "Return currently known model options and parameter schema notes for a node type or subType."
     },
     {
+      type: "canvas.resolveModelAlias",
+      description: "Resolve a user-facing model name to the observed RunningHub model name and modelCode."
+    },
+    {
       type: "canvas.updateNodeModel",
       description: "Update one node's modelCode and optional model metadata. Supports dryRun."
     },
@@ -445,6 +449,7 @@
     "text-image": {
       nodeType: "rh-image",
       defaultModelCode: "text-image-rhart-image-g-2-official-text-to-image",
+      defaultRunningHubModelName: "全能图片G2-官方稳定版",
       params: {
         prompt: "string",
         aspectRatio: "string|null",
@@ -473,6 +478,7 @@
     "text-video": {
       nodeType: "rh-video",
       defaultModelCode: "text-video-sparkvideo-2.0",
+      defaultRunningHubModelName: "Seedance2.0",
       params: {
         prompt: "string",
         resolution: "observed default 480p",
@@ -483,6 +489,79 @@
       },
       observedModels: ["Seedance2.0"]
     }
+  };
+
+  const MODEL_ALIASES = {
+    "gpt image 2": {
+      subType: "text-image",
+      requestedModelName: "GPT Image 2",
+      runningHubModelName: "全能图片G2-官方稳定版",
+      modelCode: "text-image-rhart-image-g-2-official-text-to-image",
+      mappingStatus: "observed-ui-alias"
+    },
+    "gpt-image-2": {
+      subType: "text-image",
+      requestedModelName: "GPT Image 2",
+      runningHubModelName: "全能图片G2-官方稳定版",
+      modelCode: "text-image-rhart-image-g-2-official-text-to-image",
+      mappingStatus: "observed-ui-alias"
+    },
+    "全能图片g2-官方稳定版": {
+      subType: "text-image",
+      requestedModelName: "全能图片G2-官方稳定版",
+      runningHubModelName: "全能图片G2-官方稳定版",
+      modelCode: "text-image-rhart-image-g-2-official-text-to-image",
+      mappingStatus: "exact-observed-ui-name"
+    },
+    "seedance 2.0": {
+      subType: "text-video",
+      requestedModelName: "Seedance 2.0",
+      runningHubModelName: "Seedance2.0",
+      modelCode: "text-video-sparkvideo-2.0",
+      mappingStatus: "observed-ui-alias"
+    },
+    "seedance 2.0 720p": {
+      subType: "text-video",
+      requestedModelName: "Seedance 2.0 720p",
+      runningHubModelName: "Seedance2.0",
+      modelCode: "text-video-sparkvideo-2.0",
+      params: { resolution: "720p" },
+      mappingStatus: "observed-ui-alias"
+    },
+    "seedance2.0": {
+      subType: "text-video",
+      requestedModelName: "Seedance2.0",
+      runningHubModelName: "Seedance2.0",
+      modelCode: "text-video-sparkvideo-2.0",
+      mappingStatus: "exact-observed-ui-name"
+    }
+  };
+
+  const normalizeModelName = (value) => String(value || "").trim().toLowerCase();
+
+  const resolveModelAlias = ({ modelName, modelCode, subType } = {}) => {
+    const alias = MODEL_ALIASES[normalizeModelName(modelName)];
+    if (alias) return alias;
+    if (modelCode) {
+      return {
+        subType,
+        requestedModelName: modelName,
+        runningHubModelName: modelName,
+        modelCode,
+        mappingStatus: "explicit-model-code"
+      };
+    }
+    const defaults = subType && MODEL_OPTIONS[subType];
+    if (defaults) {
+      return {
+        subType,
+        requestedModelName: modelName,
+        runningHubModelName: defaults.defaultRunningHubModelName,
+        modelCode: defaults.defaultModelCode,
+        mappingStatus: modelName ? "fallback-default-for-subtype" : "default-for-subtype"
+      };
+    }
+    return null;
   };
 
   const withinBounds = (node, bounds = {}) => {
@@ -598,6 +677,7 @@
     });
     return {
       source: "observed-from-current-RunningHub-ui",
+      aliases: MODEL_ALIASES,
       options: Object.fromEntries(entries.length ? entries : Object.entries(MODEL_OPTIONS))
     };
   };
@@ -829,6 +909,7 @@
 
   const createVideoNode = async (config = {}, command = {}) =>
     withCanvasMutation(command, ({ Y, doc, nodes, edges }) => {
+      const model = resolveModelAlias({ modelName: config.modelName, modelCode: config.modelCode, subType: "text-video" });
       const currentNodes = yArrayToJson(nodes);
       const timestamp = Date.now();
       const suffix = Math.random().toString(36).slice(2, 10);
@@ -851,14 +932,23 @@
             duration: String(config.duration || "5"),
             generateAudio: config.generateAudio ?? true,
             ratio: config.ratio ?? null,
-            webSearch: config.webSearch ?? false
+            webSearch: config.webSearch ?? false,
+            ...(model?.params || {}),
+            ...(config.params || {})
           },
-          modelCode: config.modelCode || "text-video-sparkvideo-2.0",
+          modelCode: model?.modelCode || "text-video-sparkvideo-2.0",
           generateNum: Number(config.generateNum || 1),
           subType: "text-video",
           title: config.title || "视频生成",
           type: "rh-video",
           status: "idle",
+          ...(model
+            ? {
+                requestedModelName: model.requestedModelName,
+                runningHubModelName: model.runningHubModelName,
+                modelMappingStatus: model.mappingStatus
+              }
+            : {}),
           ...(config.sourceNodeId ? { inheritedFrom: config.sourceNodeId, hasUpstream: true } : {}),
           ...(config.data || {})
         }
@@ -885,6 +975,7 @@
 
   const createImageNode = async (config = {}, command = {}) =>
     withCanvasMutation(command, ({ Y, doc, nodes, edges }) => {
+      const model = resolveModelAlias({ modelName: config.modelName, modelCode: config.modelCode, subType: config.subType || "text-image" });
       const currentNodes = yArrayToJson(nodes);
       const timestamp = Date.now();
       const suffix = Math.random().toString(36).slice(2, 10);
@@ -906,9 +997,10 @@
             aspectRatio: config.aspectRatio ?? null,
             quality: config.quality || "medium",
             resolution: config.resolution || "1k",
+            ...(model?.params || {}),
             ...(config.params || {})
           },
-          modelCode: config.modelCode || MODEL_OPTIONS["text-image"].defaultModelCode,
+          modelCode: model?.modelCode || MODEL_OPTIONS["text-image"].defaultModelCode,
           generateNum: Number(config.generateNum || 1),
           subType: config.subType || "text-image",
           title: config.title || "图片上传",
@@ -916,6 +1008,13 @@
           panorama: {
             pausedModel: ""
           },
+          ...(model
+            ? {
+                requestedModelName: model.requestedModelName,
+                runningHubModelName: model.runningHubModelName,
+                modelMappingStatus: model.mappingStatus
+              }
+            : {}),
           ...(config.sourceNodeId ? { inheritedFrom: config.sourceNodeId, hasUpstream: true } : {}),
           ...(config.data || {})
         }
@@ -943,15 +1042,39 @@
   const updateNodeModel = async ({ nodeId, id, modelCode, modelName, data = {}, ...command } = {}) => {
     const targetId = nodeId || id;
     if (!targetId) throw new Error("nodeId is required");
-    if (!modelCode) throw new Error("modelCode is required");
-    return updateNode({
-      nodeId: targetId,
-      data: {
-        ...data,
-        modelCode,
-        ...(modelName ? { modelName } : {})
-      },
-      ...command
+    const model = resolveModelAlias({ modelName, modelCode, subType: data.subType });
+    if (!model?.modelCode) throw new Error("modelCode or known modelName is required");
+    return withCanvasMutation({ type: "canvas.updateNodeModel", ...command }, ({ Y, doc, nodes }) => {
+      let updatedNode;
+      doc.transact(() => {
+        for (let index = 0; index < nodes.length; index++) {
+          const node = nodes.get(index);
+          const nodeJson = node?.toJSON?.() || node;
+          if (nodeJson?.id !== targetId) continue;
+          const next = {
+            ...nodeJson,
+            data: {
+              ...(nodeJson.data || {}),
+              ...data,
+              modelCode: model.modelCode,
+              requestedModelName: model.requestedModelName,
+              runningHubModelName: model.runningHubModelName,
+              modelMappingStatus: model.mappingStatus,
+              params: {
+                ...(nodeJson.data?.params || {}),
+                ...(data.params || {}),
+                ...(model.params || {})
+              }
+            }
+          };
+          nodes.delete(index, 1);
+          nodes.insert(index, [toYValue(Y, next)]);
+          updatedNode = next;
+          break;
+        }
+      });
+      if (!updatedNode) throw new Error(`Node not found: ${targetId}`);
+      return { updated: true, nodeId: targetId, node: updatedNode };
     });
   };
 
@@ -1204,6 +1327,8 @@
         result = await inspectNodeTemplate(command);
       } else if (command.type === "canvas.inspectModelOptions") {
         result = inspectModelOptions(command);
+      } else if (command.type === "canvas.resolveModelAlias") {
+        result = resolveModelAlias(command);
       } else if (command.type === "canvas.getConnections") {
         result = await getConnections(command);
       } else if (command.type === "canvas.createTextWorkflow") {
