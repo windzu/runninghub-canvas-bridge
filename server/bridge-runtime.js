@@ -376,6 +376,22 @@
       description: "Create one RunningHub native text-to-video rh-video node. Supports dryRun and optional upstream connection."
     },
     {
+      type: "canvas.createImageNode",
+      description: "Create one RunningHub native text-to-image rh-image node. Supports dryRun."
+    },
+    {
+      type: "canvas.inspectModelOptions",
+      description: "Return currently known model options and parameter schema notes for a node type or subType."
+    },
+    {
+      type: "canvas.updateNodeModel",
+      description: "Update one node's modelCode and optional model metadata. Supports dryRun."
+    },
+    {
+      type: "canvas.updateNodeParams",
+      description: "Merge parameter values into one node's data.params. Supports dryRun."
+    },
+    {
       type: "canvas.createTextWorkflow",
       description: "Create a minimal two-node text workflow with one group and one edge. Supports dryRun."
     },
@@ -424,6 +440,50 @@
   const getNodeTitle = (node) => String(node?.data?.title || node?.data?.groupName || node?.label || "");
   const getNodeText = (node) => String(node?.data?.text || node?.data?.params?.prompt || node?.text || "");
   const normalizeQuery = (value) => String(value || "").trim().toLowerCase();
+
+  const MODEL_OPTIONS = {
+    "text-image": {
+      nodeType: "rh-image",
+      defaultModelCode: "text-image-rhart-image-g-2-official-text-to-image",
+      params: {
+        prompt: "string",
+        aspectRatio: "string|null",
+        quality: "low | medium | high, observed default medium",
+        resolution: "observed default 1k"
+      },
+      observedModels: [
+        "全能图片G2-官方稳定版",
+        "全能图片G2-低价渠道版",
+        "全能图片V2-低价渠道版",
+        "全能图片V2-官方稳定版",
+        "全能图片Pro-低价渠道版",
+        "全能图片Pro-官方稳定版",
+        "全能图片V1-低价渠道版",
+        "全能图片G1.5-官方稳定版",
+        "全能图片X-官方稳定版",
+        "全能图片X-高质量-官方稳定版",
+        "全能图片X-低价渠道版",
+        "z-image-turbo",
+        "万相2.5",
+        "Seedream-V4",
+        "Seedream-V4.5",
+        "Seedream-V5-Lite"
+      ]
+    },
+    "text-video": {
+      nodeType: "rh-video",
+      defaultModelCode: "text-video-sparkvideo-2.0",
+      params: {
+        prompt: "string",
+        resolution: "observed default 480p",
+        duration: "observed default 5",
+        generateAudio: "boolean",
+        ratio: "string|null",
+        webSearch: "boolean"
+      },
+      observedModels: ["Seedance2.0"]
+    }
+  };
 
   const withinBounds = (node, bounds = {}) => {
     if (!bounds || typeof bounds !== "object") return true;
@@ -528,6 +588,18 @@
         suggestedCreateConfig
       };
     });
+  };
+
+  const inspectModelOptions = ({ nodeType, subType } = {}) => {
+    const entries = Object.entries(MODEL_OPTIONS).filter(([, value]) => {
+      if (subType && value !== MODEL_OPTIONS[subType]) return false;
+      if (nodeType && value.nodeType !== nodeType) return false;
+      return true;
+    });
+    return {
+      source: "observed-from-current-RunningHub-ui",
+      options: Object.fromEntries(entries.length ? entries : Object.entries(MODEL_OPTIONS))
+    };
   };
 
   const getConnections = async ({ nodeId, nodeIds = [], direction = "both", depth = 1 } = {}) => {
@@ -811,6 +883,109 @@
       return { nodeId, node, edges: addedEdges };
     });
 
+  const createImageNode = async (config = {}, command = {}) =>
+    withCanvasMutation(command, ({ Y, doc, nodes, edges }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const timestamp = Date.now();
+      const suffix = Math.random().toString(36).slice(2, 10);
+      const nodeId = config.id || `node-${timestamp}-${suffix}`;
+      const maxX = currentNodes.reduce((max, node) => Math.max(max, Number(node?.position?.x) || 0), 0);
+      const node = {
+        id: nodeId,
+        type: "rh-image",
+        position: {
+          x: Number(config.x ?? Math.max(300, maxX + 360)),
+          y: Number(config.y ?? 400)
+        },
+        zIndex: currentNodes.length + 1,
+        style: {},
+        selectable: true,
+        data: {
+          params: {
+            prompt: config.prompt || "",
+            aspectRatio: config.aspectRatio ?? null,
+            quality: config.quality || "medium",
+            resolution: config.resolution || "1k",
+            ...(config.params || {})
+          },
+          modelCode: config.modelCode || MODEL_OPTIONS["text-image"].defaultModelCode,
+          generateNum: Number(config.generateNum || 1),
+          subType: config.subType || "text-image",
+          title: config.title || "图片上传",
+          status: "idle",
+          panorama: {
+            pausedModel: ""
+          },
+          ...(config.sourceNodeId ? { inheritedFrom: config.sourceNodeId, hasUpstream: true } : {}),
+          ...(config.data || {})
+        }
+      };
+      const addedEdges = [];
+      doc.transact(() => {
+        nodes.push([toYValue(Y, node)]);
+        if (config.sourceNodeId) {
+          const edge = {
+            id: config.edgeId || `e-${config.sourceNodeId}-${nodeId}`,
+            source: config.sourceNodeId,
+            target: nodeId,
+            sourceHandle: config.sourceHandle || "output",
+            targetHandle: config.targetHandle || "input",
+            type: "default",
+            animated: false
+          };
+          edges.push([toYValue(Y, edge)]);
+          addedEdges.push(edge);
+        }
+      });
+      return { nodeId, node, edges: addedEdges };
+    });
+
+  const updateNodeModel = async ({ nodeId, id, modelCode, modelName, data = {}, ...command } = {}) => {
+    const targetId = nodeId || id;
+    if (!targetId) throw new Error("nodeId is required");
+    if (!modelCode) throw new Error("modelCode is required");
+    return updateNode({
+      nodeId: targetId,
+      data: {
+        ...data,
+        modelCode,
+        ...(modelName ? { modelName } : {})
+      },
+      ...command
+    });
+  };
+
+  const updateNodeParams = async ({ nodeId, id, params = {}, ...command } = {}) => {
+    const targetId = nodeId || id;
+    if (!targetId) throw new Error("nodeId is required");
+    return withCanvasMutation({ type: "canvas.updateNodeParams", ...command }, ({ Y, doc, nodes }) => {
+      let updatedNode;
+      doc.transact(() => {
+        for (let index = 0; index < nodes.length; index++) {
+          const node = nodes.get(index);
+          const nodeJson = node?.toJSON?.() || node;
+          if (nodeJson?.id !== targetId) continue;
+          const next = {
+            ...nodeJson,
+            data: {
+              ...(nodeJson.data || {}),
+              params: {
+                ...(nodeJson.data?.params || {}),
+                ...params
+              }
+            }
+          };
+          nodes.delete(index, 1);
+          nodes.insert(index, [toYValue(Y, next)]);
+          updatedNode = next;
+          break;
+        }
+      });
+      if (!updatedNode) throw new Error(`Node not found: ${targetId}`);
+      return { updated: true, nodeId: targetId, node: updatedNode };
+    });
+  };
+
   const connectNodes = async ({ source, target, sourceHandle = "output", targetHandle = "input", edgeId: requestedEdgeId, id: commandId, ...command } = {}) => {
     if (!source) throw new Error("source is required");
     if (!target) throw new Error("target is required");
@@ -1027,6 +1202,8 @@
         result = await getElement(command);
       } else if (command.type === "canvas.inspectNodeTemplate") {
         result = await inspectNodeTemplate(command);
+      } else if (command.type === "canvas.inspectModelOptions") {
+        result = inspectModelOptions(command);
       } else if (command.type === "canvas.getConnections") {
         result = await getConnections(command);
       } else if (command.type === "canvas.createTextWorkflow") {
@@ -1037,8 +1214,14 @@
         result = await createNode(command.config || {}, command);
       } else if (command.type === "canvas.createVideoNode") {
         result = await createVideoNode(command.config || {}, command);
+      } else if (command.type === "canvas.createImageNode") {
+        result = await createImageNode(command.config || {}, command);
       } else if (command.type === "canvas.connectNodes") {
         result = await connectNodes(command);
+      } else if (command.type === "canvas.updateNodeModel") {
+        result = await updateNodeModel(command);
+      } else if (command.type === "canvas.updateNodeParams") {
+        result = await updateNodeParams(command);
       } else if (command.type === "canvas.updateNode") {
         result = await updateNode(command);
       } else if (command.type === "canvas.updateNodePosition") {

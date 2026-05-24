@@ -17,12 +17,16 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs find-elements [--client <clientId>] [--timeout <ms>] [--query-json <json>]
   node scripts/rh-bridge.mjs get-element <id> [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs inspect-node-template <nodeId> [--client <clientId>] [--timeout <ms>] [--include-position]
+  node scripts/rh-bridge.mjs inspect-model-options [--client <clientId>] [--timeout <ms>] [--node-type <type>] [--sub-type <subType>]
   node scripts/rh-bridge.mjs connections <nodeId> [--client <clientId>] [--timeout <ms>] [--direction <both|upstream|downstream>] [--depth <n>]
   node scripts/rh-bridge.mjs create-text-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-video-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
+  node scripts/rh-bridge.mjs create-image-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs connect-nodes <sourceId> <targetId> [--client <clientId>] [--timeout <ms>] [--dry-run]
+  node scripts/rh-bridge.mjs update-node-model <nodeId> <modelCode> [--client <clientId>] [--timeout <ms>] [--model-name <name>] [--dry-run]
+  node scripts/rh-bridge.mjs update-node-params <nodeId> [--client <clientId>] [--timeout <ms>] [--params-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs update-node <nodeId> [--client <clientId>] [--timeout <ms>] [--patch-json <json>] [--data-json <json>] [--title <title>] [--dry-run]
   node scripts/rh-bridge.mjs update-node-text <nodeId> <text> [--client <clientId>] [--timeout <ms>] [--title <title>] [--dry-run]
   node scripts/rh-bridge.mjs move-node <nodeId> <x> <y> [--client <clientId>] [--timeout <ms>] [--dry-run]
@@ -138,6 +142,9 @@ if (!commandName || commandName === "-h" || commandName === "--help") {
 const timeoutMs = Number(option("--timeout", "15000"));
 const clientId = option("--client");
 const title = option("--title");
+const nodeType = option("--node-type");
+const subType = option("--sub-type");
+const modelName = option("--model-name");
 const direction = option("--direction", "both");
 const depth = option("--depth", "1");
 const dx = option("--dx", "0");
@@ -177,6 +184,8 @@ if (commandName === "health") {
   const nodeId = args.shift();
   if (!nodeId) fail("Missing nodeId");
   print(await enqueue({ ...baseCommand, type: "canvas.inspectNodeTemplate", nodeId, includePosition }, timeoutMs));
+} else if (commandName === "inspect-model-options") {
+  print(await enqueue({ ...baseCommand, type: "canvas.inspectModelOptions", nodeType, subType }, timeoutMs));
 } else if (commandName === "connections") {
   const nodeId = args.shift();
   if (!nodeId) fail("Missing nodeId");
@@ -193,12 +202,26 @@ if (commandName === "health") {
 } else if (commandName === "create-video-node") {
   const config = configOption();
   print(await enqueue({ ...baseCommand, type: "canvas.createVideoNode", config, dryRun }, timeoutMs));
+} else if (commandName === "create-image-node") {
+  const config = configOption();
+  print(await enqueue({ ...baseCommand, type: "canvas.createImageNode", config, dryRun }, timeoutMs));
 } else if (commandName === "connect-nodes") {
   const source = args.shift();
   const target = args.shift();
   if (!source) fail("Missing sourceId");
   if (!target) fail("Missing targetId");
   print(await enqueue({ ...baseCommand, type: "canvas.connectNodes", source, target, dryRun }, timeoutMs));
+} else if (commandName === "update-node-model") {
+  const nodeId = args.shift();
+  const modelCode = args.shift();
+  if (!nodeId) fail("Missing nodeId");
+  if (!modelCode) fail("Missing modelCode");
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNodeModel", nodeId, modelCode, modelName, dryRun }, timeoutMs));
+} else if (commandName === "update-node-params") {
+  const nodeId = args.shift();
+  if (!nodeId) fail("Missing nodeId");
+  const params = jsonOption("--params-json");
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNodeParams", nodeId, params, dryRun }, timeoutMs));
 } else if (commandName === "update-node") {
   const nodeId = args.shift();
   if (!nodeId) fail("Missing nodeId");

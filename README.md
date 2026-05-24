@@ -97,12 +97,16 @@ When no `--client` is passed, the server routes commands to the most recently ac
 - `npm run bridge -- find-elements --query-json '<json>'`: find nodes and edges by id, type, text/title query, or position bounds.
 - `npm run bridge -- get-element <id>`: return one node or edge by id.
 - `npm run bridge -- inspect-node-template <nodeId>`: extract a reusable `create-node` template from an existing node.
+- `npm run bridge -- inspect-model-options --sub-type <subType>`: return observed model options and parameter notes.
 - `npm run bridge -- connections <nodeId> --direction <both|upstream|downstream> --depth <n>`: return connected nodes and edges.
 - `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
 - `npm run bridge -- create-text-node --config-json '<json>'`: create one `rh-text` node.
 - `npm run bridge -- create-node --config-json '<json>'`: create one generic canvas node from a node template, type, position, and data.
 - `npm run bridge -- create-video-node --config-json '<json>'`: create one native `rh-video` text-to-video node and optionally connect it to an upstream node.
+- `npm run bridge -- create-image-node --config-json '<json>'`: create one native `rh-image` text-to-image node and optionally connect it to an upstream node.
 - `npm run bridge -- connect-nodes <sourceId> <targetId>`: create one edge between two nodes.
+- `npm run bridge -- update-node-model <nodeId> <modelCode>`: update one node's `data.modelCode`.
+- `npm run bridge -- update-node-params <nodeId> --params-json '<json>'`: merge values into one node's `data.params`.
 - `npm run bridge -- update-node <nodeId> --patch-json '<json>' --data-json '<json>'`: update node fields such as position, data, style, zIndex, width, and height.
 - `npm run bridge -- update-node-text <nodeId> <text> --title '<title>'`: update a text node through the canvas Yjs room.
 - `npm run bridge -- move-node <nodeId> <x> <y>`: update a node position.
