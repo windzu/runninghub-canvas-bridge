@@ -128,6 +128,28 @@ const AGENT_MANIFEST = {
       costsCredits: false,
       supportsDryRun: true
     },
+    "prepare-image-workflow": {
+      summary: "Atomically prepare a prompt text node, image generation node, and reference edges without running generation.",
+      requiresPageClient: true,
+      mutatesCanvas: true,
+      costsCredits: false,
+      supportsDryRun: true,
+      defaultRunBehavior: "prepared-but-not-run"
+    },
+    "find-reference-candidates": {
+      summary: "Find reusable rh-image reference candidates by semantic title, label, prompt preview, or upstream lineage.",
+      requiresPageClient: true,
+      mutatesCanvas: false,
+      costsCredits: false,
+      supportsDryRun: false
+    },
+    "describe-image-node": {
+      summary: "Return compact identity/provenance for one rh-image node without media URLs by default.",
+      requiresPageClient: true,
+      mutatesCanvas: false,
+      costsCredits: false,
+      supportsDryRun: false
+    },
     "create-video-node": {
       summary: "Create an rh-video generation node without running it.",
       requiresPageClient: true,
@@ -260,7 +282,9 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs inspect-node-template <nodeId> [--client <clientId>] [--timeout <ms>] [--include-position]
   node scripts/rh-bridge.mjs inspect-model-options [--client <clientId>] [--timeout <ms>] [--node-type <type>] [--sub-type <subType>]
   node scripts/rh-bridge.mjs resolve-model-alias <modelName> [--client <clientId>] [--timeout <ms>] [--sub-type <subType>]
-  node scripts/rh-bridge.mjs connections <nodeId> [--client <clientId>] [--timeout <ms>] [--direction <both|upstream|downstream>] [--depth <n>]
+  node scripts/rh-bridge.mjs connections <nodeId> [--client <clientId>] [--timeout <ms>] [--direction <both|upstream|downstream>] [--depth <n>] [--summary] [--fields <csv>] [--no-outputs] [--no-params] [--text-preview-length <n>]
+  node scripts/rh-bridge.mjs find-reference-candidates --text <description> [--client <clientId>] [--timeout <ms>] [--limit <n>] [--include-urls] [--text-preview-length <n>]
+  node scripts/rh-bridge.mjs describe-image-node <nodeId> [--client <clientId>] [--timeout <ms>] [--include-urls] [--text-preview-length <n>]
   node scripts/rh-bridge.mjs create-text-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-text-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-text-nodes [--client <clientId>] [--timeout <ms>] [--config-json <json-array>] [--x <n>] [--y <n>] [--gap-x <n>] [--gap-y <n>] [--dry-run]
@@ -269,6 +293,7 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs create-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs create-video-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--multimodal] [--dry-run]
   node scripts/rh-bridge.mjs create-image-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
+  node scripts/rh-bridge.mjs prepare-image-workflow [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run] [--full]
   node scripts/rh-bridge.mjs create-reference-image-node [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs upload-reference-image <nodeId> --file <path> [--client <clientId>] [--timeout <ms>] [--input-index <n>] [--wait-ms <ms>]
   node scripts/rh-bridge.mjs upload-local-reference-image --file <path> [--client <clientId>] [--timeout <ms>] [--config-json <json>] [--input-index <n>] [--wait-ms <ms>] [--connect-to-node <nodeId>]
@@ -282,9 +307,9 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs poll-task-result <taskId> [--client <clientId>] [--timeout <ms>] [--poll-timeout <ms>] [--poll-interval <ms>] [--allow-no-output]
   node scripts/rh-bridge.mjs connect-nodes <sourceId> <targetId> [--client <clientId>] [--timeout <ms>] [--dry-run]
   node scripts/rh-bridge.mjs update-node-model <nodeId> <modelCode> [--client <clientId>] [--timeout <ms>] [--model-name <name>] [--dry-run]
-  node scripts/rh-bridge.mjs update-node-params <nodeId> [--client <clientId>] [--timeout <ms>] [--params-json <json>] [--dry-run]
-  node scripts/rh-bridge.mjs update-node <nodeId> [--client <clientId>] [--timeout <ms>] [--patch-json <json>] [--data-json <json>] [--title <title>] [--dry-run]
-  node scripts/rh-bridge.mjs update-node-text <nodeId> <text> [--client <clientId>] [--timeout <ms>] [--title <title>] [--dry-run]
+  node scripts/rh-bridge.mjs update-node-params <nodeId> [--client <clientId>] [--timeout <ms>] [--params-json <json>] [--dry-run] [--full]
+  node scripts/rh-bridge.mjs update-node <nodeId> [--client <clientId>] [--timeout <ms>] [--patch-json <json>] [--data-json <json>] [--title <title>] [--dry-run] [--full]
+  node scripts/rh-bridge.mjs update-node-text <nodeId> <text> [--client <clientId>] [--timeout <ms>] [--title <title>] [--dry-run] [--full]
   node scripts/rh-bridge.mjs move-node <nodeId> <x> <y> [--client <clientId>] [--timeout <ms>] [--dry-run]
   node scripts/rh-bridge.mjs move-nodes <id...> [--client <clientId>] [--timeout <ms>] [--dx <n>] [--dy <n>] [--positions-json <json>] [--dry-run]
   node scripts/rh-bridge.mjs delete-elements <id...> [--client <clientId>] [--timeout <ms>] [--dry-run]
@@ -469,6 +494,9 @@ const preflight = async ({ clientId, timeoutMs }) => {
     "canvas.uploadLocalReferenceImage",
     "canvas.createReferenceFromUrl",
     "canvas.summary",
+    "canvas.findReferenceCandidates",
+    "canvas.describeImageNode",
+    "canvas.prepareImageWorkflow",
     "canvas.prepareVideoNode",
     "canvas.validateVideoRun",
     "canvas.validateNodeRun",
@@ -639,6 +667,7 @@ const limit = option("--limit");
 const types = option("--types");
 const status = option("--status");
 const fields = option("--fields");
+const referenceText = option("--text");
 const textPreviewLength = option("--text-preview-length");
 const dryRun = flag("--dry-run");
 const includePosition = flag("--include-position");
@@ -650,13 +679,16 @@ const noUrls = flag("--no-urls");
 const noTextPreview = flag("--no-text-preview");
 const noOutputs = flag("--no-outputs");
 const noParams = flag("--no-params");
+const includeUrls = flag("--include-urls");
 const compact = flag("--compact");
 const full = flag("--full");
 const summary = flag("--summary");
-outputMode.prettySummary = flag("--pretty-summary");
-flag("--json");
+const prettySummary = flag("--pretty-summary");
+const explicitJson = flag("--json");
+outputMode.prettySummary = prettySummary && !explicitJson;
 const multimodal = flag("--multimodal");
 const baseCommand = clientId ? { clientId } : {};
+const compactMutation = !full && !explicitJson;
 
 if (commandName === "agent-manifest") {
   print(AGENT_MANIFEST);
@@ -731,7 +763,55 @@ if (commandName === "agent-manifest") {
 } else if (commandName === "connections") {
   const nodeId = args.shift();
   if (!nodeId) fail("Missing nodeId");
-  print(await enqueue({ ...baseCommand, type: "canvas.getConnections", nodeId, direction, depth }, timeoutMs));
+  print(
+    await enqueue(
+      {
+        ...baseCommand,
+        type: "canvas.getConnections",
+        nodeId,
+        direction,
+        depth,
+        summary,
+        compact,
+        fields,
+        noOutputs,
+        noParams,
+        includeUrls,
+        textPreviewLength: textPreviewLength === undefined ? undefined : Number(textPreviewLength)
+      },
+      timeoutMs
+    )
+  );
+} else if (commandName === "find-reference-candidates") {
+  if (!referenceText) fail("Missing --text");
+  print(
+    await enqueue(
+      {
+        ...baseCommand,
+        type: "canvas.findReferenceCandidates",
+        text: referenceText,
+        limit: limit === undefined ? undefined : Number(limit),
+        includeUrls,
+        textPreviewLength: textPreviewLength === undefined ? undefined : Number(textPreviewLength)
+      },
+      timeoutMs
+    )
+  );
+} else if (commandName === "describe-image-node") {
+  const nodeId = args.shift();
+  if (!nodeId) fail("Missing nodeId");
+  print(
+    await enqueue(
+      {
+        ...baseCommand,
+        type: "canvas.describeImageNode",
+        nodeId,
+        includeUrls,
+        textPreviewLength: textPreviewLength === undefined ? undefined : Number(textPreviewLength)
+      },
+      timeoutMs
+    )
+  );
 } else if (commandName === "create-text-workflow") {
   const config = configOption();
   print(await enqueue({ ...baseCommand, type: "canvas.createTextWorkflow", config, dryRun }, timeoutMs));
@@ -798,6 +878,9 @@ if (commandName === "agent-manifest") {
 } else if (commandName === "create-image-node") {
   const config = configOption();
   print(await enqueue({ ...baseCommand, type: "canvas.createImageNode", config, dryRun }, timeoutMs));
+} else if (commandName === "prepare-image-workflow") {
+  const config = configOption();
+  print(await enqueue({ ...baseCommand, type: "canvas.prepareImageWorkflow", config, dryRun, compactMutation }, timeoutMs));
 } else if (commandName === "create-reference-image-node") {
   const config = configOption();
   print(await enqueue({ ...baseCommand, type: "canvas.createReferenceImageNode", config, dryRun }, timeoutMs));
@@ -962,19 +1045,19 @@ if (commandName === "agent-manifest") {
   const nodeId = args.shift();
   if (!nodeId) fail("Missing nodeId");
   const params = jsonOption("--params-json");
-  print(await enqueue({ ...baseCommand, type: "canvas.updateNodeParams", nodeId, params, dryRun }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNodeParams", nodeId, params, dryRun, compactMutation }, timeoutMs));
 } else if (commandName === "update-node") {
   const nodeId = args.shift();
   if (!nodeId) fail("Missing nodeId");
   const patch = jsonOption("--patch-json");
   const data = jsonOption("--data-json", undefined);
-  print(await enqueue({ ...baseCommand, type: "canvas.updateNode", nodeId, patch, data, title, dryRun }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNode", nodeId, patch, data, title, dryRun, compactMutation }, timeoutMs));
 } else if (commandName === "update-node-text") {
   const nodeId = args.shift();
   const text = args.shift();
   if (!nodeId) fail("Missing nodeId");
   if (text === undefined) fail("Missing text");
-  print(await enqueue({ ...baseCommand, type: "canvas.updateNodeText", nodeId, text, title, dryRun }, timeoutMs));
+  print(await enqueue({ ...baseCommand, type: "canvas.updateNodeText", nodeId, text, title, dryRun, compactMutation }, timeoutMs));
 } else if (commandName === "move-node") {
   const nodeId = args.shift();
   const x = args.shift();

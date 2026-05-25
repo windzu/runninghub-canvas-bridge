@@ -156,7 +156,9 @@ The service runs `server/server.mjs` locally and does not store cookies, tokens,
 - `npm run bridge -- inspect-node-template <nodeId>`: extract a reusable `create-node` template from an existing node.
 - `npm run bridge -- inspect-model-options --sub-type <subType>`: return observed model options and parameter notes.
 - `npm run bridge -- resolve-model-alias <modelName>`: map a user-facing model name such as `GPT Image 2` to the observed RunningHub model name and `modelCode`.
-- `npm run bridge -- connections <nodeId> --direction <both|upstream|downstream> --depth <n>`: return connected nodes and edges.
+- `npm run bridge -- connections <nodeId> --direction <both|upstream|downstream> --depth <n> --summary`: return compact connected nodes and edges without full prompts, params, outputs, or media URLs.
+- `npm run bridge -- find-reference-candidates --text '<description>'`: find reusable `rh-image` references by semantic title, label, prompt preview, or upstream lineage.
+- `npm run bridge -- describe-image-node <nodeId>`: return compact identity/provenance for one image node; add `--include-urls` only when media URLs are needed.
 - `npm run bridge -- create-text-workflow --config-json '<json>'`: create two text nodes, one group, and one edge through the canvas Yjs room.
 - `npm run bridge -- create-text-node --config-json '<json>'`: create one `rh-text` node.
 - `npm run bridge -- create-text-nodes --config-json '<json-array>'`: create multiple `rh-text` nodes as one operation with one rollback id.
@@ -164,6 +166,7 @@ The service runs `server/server.mjs` locally and does not store cookies, tokens,
 - `npm run bridge -- create-node --config-json '<json>'`: create one generic canvas node from a node template, type, position, and data.
 - `npm run bridge -- create-video-node --config-json '<json>' [--multimodal]`: create one native `rh-video` node without running generation; use `--multimodal` for reference-conditioned video setup.
 - `npm run bridge -- create-image-node --config-json '<json>'`: create one native `rh-image` text-to-image node without running generation.
+- `npm run bridge -- prepare-image-workflow --config-json '<json>'`: atomically create or update one prompt text node, one image-generation node, and reference edges without running generation.
 - `npm run bridge -- create-reference-from-url --url <url> --config-json '<json>'`: create a directly usable reference image node from an existing URL.
 - `npm run bridge -- upload-local-reference-image --file <path> --config-json '<json>'`: create a staging image node, upload the local file, and return directly usable reference node ids and URLs.
 - `npm run bridge -- upload-reference-image <nodeId> --file <path>`: inject a local image into an existing rendered image node.
@@ -173,6 +176,7 @@ The service runs `server/server.mjs` locally and does not store cookies, tokens,
 - `npm run bridge -- update-node-params <nodeId> --params-json '<json>'`: merge values into one node's `data.params`.
 - `npm run bridge -- update-node <nodeId> --patch-json '<json>' --data-json '<json>'`: update node fields such as position, data, style, zIndex, width, and height.
 - `npm run bridge -- update-node-text <nodeId> <text> --title '<title>'`: update a text node through the canvas Yjs room.
+- Agent-created visual workflows should use meaningful node titles at creation time, for example `火车外部三视图｜参考图` or `尾车脱轨侧撞四宫格｜待确认生成`. Existing user-authored nodes should not be renamed without explicit approval.
 - `npm run bridge -- move-node <nodeId> <x> <y>`: update a node position.
 - `npm run bridge -- move-nodes <id...> --dx <n> --dy <n>`: move multiple nodes by delta, or pass `--positions-json` for explicit positions.
 - `npm run bridge -- delete-elements <id...>`: delete nodes, groups, and edges by id through the canvas Yjs room.

@@ -2,6 +2,8 @@
 
 This repository is a local tool layer for operating a logged-in RunningHub infinite canvas without mouse automation.
 
+For repeatable Agent-as-user QA, follow `docs/agent-qa-playbook.md`.
+
 The goal for any Agent is simple:
 
 1. Verify the bridge and page are ready.

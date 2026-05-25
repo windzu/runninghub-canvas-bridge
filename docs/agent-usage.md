@@ -2,6 +2,8 @@
 
 This project exposes a local bridge for Agents to operate a logged-in RunningHub infinite canvas without mouse automation.
 
+For repeatable black-box acceptance testing, use `docs/agent-qa-playbook.md`.
+
 ## First Commands
 
 Run these before touching the canvas:

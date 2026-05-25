@@ -278,6 +278,90 @@
     after: { nodes: after.nodes?.length || 0, edges: after.edges?.length || 0 }
   });
 
+  const compactCanvasDiff = (diff = {}) => ({
+    nodes: {
+      added: diff.nodes?.added || [],
+      removed: diff.nodes?.removed || [],
+      updated: (diff.nodes?.updated || []).map(({ id, before, after }) => ({
+        id,
+        type: after?.type || before?.type,
+        title: getNodeTitle(after || before),
+        status: after?.data?.status,
+        changedFields: changedFieldPaths(before, after),
+        text: compactTextChange(textFromNode(before), textFromNode(after))
+      })),
+      counts: diff.nodes?.counts || { added: 0, removed: 0, updated: 0 }
+    },
+    edges: {
+      added: diff.edges?.added || [],
+      removed: diff.edges?.removed || [],
+      updated: (diff.edges?.updated || []).map(({ id, before, after }) => ({
+        id,
+        source: after?.source || before?.source,
+        target: after?.target || before?.target,
+        changedFields: changedFieldPaths(before, after)
+      })),
+      counts: diff.edges?.counts || { added: 0, removed: 0, updated: 0 }
+    },
+    before: diff.before,
+    after: diff.after
+  });
+
+  const compactTextChange = (before = "", after = "") => ({
+    beforeLength: String(before || "").length,
+    afterLength: String(after || "").length,
+    changed: String(before || "") !== String(after || "")
+  });
+
+  const changedFieldPaths = (before, after, prefix = "", out = []) => {
+    if (Object.is(before, after)) return out;
+    if (
+      before === null ||
+      after === null ||
+      typeof before !== "object" ||
+      typeof after !== "object" ||
+      Array.isArray(before) ||
+      Array.isArray(after)
+    ) {
+      if (prefix) out.push(prefix);
+      return out;
+    }
+    const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+    for (const key of keys) {
+      changedFieldPaths(before?.[key], after?.[key], prefix ? `${prefix}.${key}` : key, out);
+    }
+    return [...new Set(out)].slice(0, 80);
+  };
+
+  const compactMutationPayload = ({ value, diff, command } = {}) => {
+    const result = value && typeof value === "object" ? { ...value } : value;
+    if (result?.node) {
+      result.node = compactNodeSummary(result.node, { includeUrls: false, includeTextPreview: true, textPreviewLength: command?.textPreviewLength || 120 });
+    }
+    if (typeof result?.text === "string") {
+      result.textLength = result.text.length;
+      delete result.text;
+    }
+    if (result?.params && typeof result.params === "object") {
+      result.changedParamKeys = Object.keys(result.params);
+      delete result.params;
+    }
+    if (Array.isArray(result?.nodes)) {
+      result.nodes = result.nodes.map((node) => compactNodeSummary(node, { includeUrls: false, includeTextPreview: true, textPreviewLength: command?.textPreviewLength || 120 }));
+    }
+    if (Array.isArray(result?.edges)) result.edges = result.edges.map((edge) => compactEdgeSummary(edge));
+    if (Array.isArray(result?.addedEdges)) result.addedEdges = result.addedEdges.map((edge) => compactEdgeSummary(edge));
+    return {
+      result,
+      diff: compactCanvasDiff(diff),
+      generationTriggered: false,
+      preserved: {
+        edgesUnchanged: (diff.edges?.counts?.added || 0) === 0 && (diff.edges?.counts?.removed || 0) === 0 && (diff.edges?.counts?.updated || 0) === 0,
+        runStateUnchanged: true
+      }
+    };
+  };
+
   const makePreviewContext = (Y, snapshot) => {
     const doc = new Y.Doc();
     const root = doc.getMap("canvas");
@@ -318,11 +402,20 @@
         try {
           value = await mutate(preview);
           const after = canvasSnapshotFromContext(preview);
+          const diff = diffCanvasSnapshots(before, after);
+          if (command.compactMutation) {
+            const compact = compactMutationPayload({ value, diff, command });
+            return {
+              dryRun: true,
+              applied: false,
+              ...compact
+            };
+          }
           return {
             dryRun: true,
             applied: false,
             result: value,
-            diff: diffCanvasSnapshots(before, after)
+            diff
           };
         } finally {
           preview.doc.destroy();
@@ -333,6 +426,15 @@
       const after = canvasSnapshotFromContext(ctx);
       const diff = diffCanvasSnapshots(before, after);
       const rollbackId = rememberRollback({ command, before, after, diff });
+      if (command.compactMutation) {
+        const compact = compactMutationPayload({ value, diff, command });
+        return {
+          dryRun: false,
+          applied: true,
+          rollbackId,
+          ...compact
+        };
+      }
       return {
         dryRun: false,
         applied: true,
@@ -408,6 +510,14 @@
       description: "Return one node or edge by id."
     },
     {
+      type: "canvas.findReferenceCandidates",
+      description: "Find reusable rh-image reference candidates by semantic title, label, prompt preview, or upstream lineage."
+    },
+    {
+      type: "canvas.describeImageNode",
+      description: "Return compact identity/provenance for one rh-image node without media URLs by default."
+    },
+    {
       type: "canvas.inspectNodeTemplate",
       description: "Extract a reusable create-node template from one existing canvas node."
     },
@@ -442,6 +552,10 @@
     {
       type: "canvas.createImageNode",
       description: "Create one RunningHub native text-to-image rh-image node. Supports dryRun."
+    },
+    {
+      type: "canvas.prepareImageWorkflow",
+      description: "Atomically create or update one prompt text node, one image generation node, and reference edges without running generation. Supports dryRun."
     },
     {
       type: "canvas.createReferenceImageNode",
@@ -880,6 +994,86 @@
       };
     });
 
+  const referenceCandidateSummary = (node, { edges = [], nodes = [], includeUrls = false, textPreviewLength = 120 } = {}) => {
+    const upstream = directUpstreamNodes({ targetId: node.id, nodes, edges });
+    const upstreamText = upstream.filter(({ node: upstreamNode }) => upstreamNode?.type === "rh-text").map(({ node: upstreamNode }) => textFromNode(upstreamNode)).filter(Boolean);
+    return {
+      ...compactNodeSummary(node, { includeUrls, includeTextPreview: true, textPreviewLength }),
+      label: node.data?.label,
+      promptChars: textFromNode(node).length,
+      upstreamTextCount: upstreamText.length,
+      upstreamTextPreview: upstreamText.join("\n\n").slice(0, Number(textPreviewLength) || 120),
+      provenance: {
+        agentCreated: Boolean(node.data?.agentCreated),
+        from: node.data?.from,
+        sourceObjectCount: Array.isArray(node.data?.sourceObjects) ? node.data.sourceObjects.length : 0,
+        outputCount: Array.isArray(node.data?.output) ? node.data.output.length : 0
+      }
+    };
+  };
+
+  const findReferenceCandidates = async ({ text, q, query, limit = 10, includeUrls = false, textPreviewLength = 120 } = {}) =>
+    withCanvasYjs(({ nodes, edges, canvasId }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const currentEdges = yArrayToJson(edges);
+      const needle = normalizeQuery(text || q || query);
+      const imageNodes = currentNodes.filter((node) => node?.type === "rh-image");
+      const scored = imageNodes
+        .map((node) => {
+          const upstream = directUpstreamNodes({ targetId: node.id, nodes: currentNodes, edges: currentEdges });
+          const haystackParts = [
+            node.id,
+            getNodeTitle(node),
+            node.data?.label,
+            node.data?.agentReferenceLabel,
+            node.data?.referenceLabel,
+            textFromNode(node),
+            ...upstream.map(({ node: upstreamNode }) => [getNodeTitle(upstreamNode), textFromNode(upstreamNode)].join(" "))
+          ];
+          const haystack = normalizeQuery(haystackParts.join(" "));
+          const score = needle ? haystackParts.reduce((sum, part) => sum + (normalizeQuery(part).includes(needle) ? 1 : 0), 0) : 1;
+          return { node, score };
+        })
+        .filter((item) => !needle || item.score > 0)
+        .sort((a, b) => b.score - a.score || String(getNodeTitle(a.node)).localeCompare(String(getNodeTitle(b.node))));
+      const effectiveLimit = Math.max(0, Number(limit) || 10);
+      return {
+        ok: true,
+        canvasId,
+        query: text || q || query || "",
+        counts: { candidates: scored.length, returned: scored.slice(0, effectiveLimit).length },
+        candidates: scored.slice(0, effectiveLimit).map(({ node, score }) => ({
+          score,
+          ...referenceCandidateSummary(node, { edges: currentEdges, nodes: currentNodes, includeUrls, textPreviewLength })
+        })),
+        nextActions: [
+          "Prefer nodes with explicit semantic titles or labels.",
+          "Do not rename existing user-authored nodes unless the user explicitly approves it."
+        ]
+      };
+    });
+
+  const describeImageNode = async ({ nodeId, id, includeUrls = false, textPreviewLength = 160 } = {}) => {
+    const targetId = nodeId || id;
+    if (!targetId) throw new Error("nodeId is required");
+    return withCanvasYjs(({ nodes, edges, canvasId }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const currentEdges = yArrayToJson(edges);
+      const node = currentNodes.find((item) => item?.id === targetId);
+      if (!node) throw new Error(`Node not found: ${targetId}`);
+      if (node.type !== "rh-image") throw new Error(`Expected rh-image node, got ${node.type || "unknown"}`);
+      return {
+        ok: true,
+        canvasId,
+        node: referenceCandidateSummary(node, { edges: currentEdges, nodes: currentNodes, includeUrls, textPreviewLength }),
+        upstream: directUpstreamNodes({ targetId, nodes: currentNodes, edges: currentEdges }).map(({ node: upstreamNode, edge }) => ({
+          edge: compactEdgeSummary(edge),
+          node: compactNodeSummary(upstreamNode, { includeUrls: false, includeTextPreview: true, textPreviewLength })
+        }))
+      };
+    });
+  };
+
   const getElement = async ({ id } = {}) => {
     if (!id) throw new Error("id is required");
     return withCanvasYjs(({ nodes, edges, canvasId }) => {
@@ -1018,7 +1212,7 @@
     };
   };
 
-  const getConnections = async ({ nodeId, nodeIds = [], direction = "both", depth = 1 } = {}) => {
+  const getConnections = async ({ nodeId, nodeIds = [], direction = "both", depth = 1, summary, compact, fields, edgeFields, noOutputs, noParams, includeUrls, textPreviewLength } = {}) => {
     const seeds = [...nodeIds, nodeId].filter(Boolean);
     if (!seeds.length) throw new Error("nodeId or nodeIds is required");
     const maxDepth = Math.max(1, Number(depth) || 1);
@@ -1047,13 +1241,28 @@
         if (!frontier.length) break;
       }
 
+      const compactMode = summary || compact || fields || edgeFields || noOutputs || noParams || textPreviewLength;
+      const connectedNodes = [...seenNodes].map((id) => nodeById.get(id) || { id, missing: true });
+      const connectedEdges = currentEdges.filter((edge) => seenEdges.has(edge?.id));
       return {
         canvasId,
         seeds,
         direction,
         depth: maxDepth,
-        nodes: [...seenNodes].map((id) => nodeById.get(id) || { id, missing: true }),
-        edges: currentEdges.filter((edge) => seenEdges.has(edge?.id)),
+        compact: Boolean(compactMode),
+        nodes: compactMode
+          ? connectedNodes.map((node) =>
+              node.missing
+                ? node
+                : compactNodeSummary(node, {
+                    includeUrls: Boolean(includeUrls) && !noOutputs,
+                    includeTextPreview: true,
+                    textPreviewLength,
+                    fields
+                  })
+            )
+          : connectedNodes,
+        edges: compactMode ? connectedEdges.map((edge) => compactEdgeSummary(edge, { fields: edgeFields })) : connectedEdges,
         counts: { nodes: seenNodes.size, edges: seenEdges.size }
       };
     });
@@ -1858,6 +2067,179 @@
       };
     });
 
+  const prepareImageWorkflow = async ({ config = {}, dryRun, ...command } = {}) =>
+    withCanvasMutation({ type: "canvas.prepareImageWorkflow", dryRun, compactMutation: true, ...command }, ({ Y, doc, nodes, edges, canvasId }) => {
+      const currentNodes = yArrayToJson(nodes);
+      const currentEdges = yArrayToJson(edges);
+      const nodeById = new Map(currentNodes.map((node) => [node?.id, node]).filter(([id]) => id));
+      const textConfig = config.textNode || {};
+      const imageConfig = config.imageNode || {};
+      const textNodeId = config.textNodeId || textConfig.id;
+      const imageNodeId = config.imageNodeId || imageConfig.id;
+      const referenceNodeIds = config.referenceNodeIds || imageConfig.referenceNodeIds || [];
+      if (!Array.isArray(referenceNodeIds)) throw new Error("referenceNodeIds must be an array");
+
+      const timestamp = Date.now();
+      const suffix = Math.random().toString(36).slice(2, 10);
+      const maxX = currentNodes.reduce((max, node) => Math.max(max, Number(node?.position?.x) || 0), 0);
+      const textId = textNodeId || `node-${timestamp}-${suffix}-prompt`;
+      const imageId = imageNodeId || `node-${timestamp}-${suffix}-image`;
+      const references = referenceNodeIds.map((id) => nodeById.get(id));
+      const missingReferences = referenceNodeIds.filter((id, index) => !references[index]);
+      if (missingReferences.length) throw new Error(`Reference node not found: ${missingReferences.join(", ")}`);
+
+      let textNode = textNodeId ? nodeById.get(textNodeId) : null;
+      let imageNode = imageNodeId ? nodeById.get(imageNodeId) : null;
+      if (textNodeId && !textNode) throw new Error(`Text node not found: ${textNodeId}`);
+      if (imageNodeId && !imageNode) throw new Error(`Image node not found: ${imageNodeId}`);
+      if (imageNode && imageNode.type !== "rh-image") throw new Error(`Expected image node rh-image, got ${imageNode.type || "unknown"}`);
+
+      const promptText = textConfig.text ?? config.text ?? imageConfig.prompt ?? imageConfig.params?.prompt ?? "";
+      const imagePrompt = imageConfig.prompt ?? imageConfig.params?.prompt ?? promptText;
+      if (!textNode && !String(promptText || "").trim()) throw new Error("textNode.text or imageNode.prompt is required for a new workflow");
+
+      if (!textNode) {
+        textNode = {
+          id: textId,
+          type: "rh-text",
+          position: {
+            x: Number(textConfig.x ?? textConfig.position?.x ?? Math.max(300, maxX + 360)),
+            y: Number(textConfig.y ?? textConfig.position?.y ?? 300)
+          },
+          zIndex: currentNodes.length + 1,
+          style: {},
+          selectable: true,
+          data: {
+            params: { prompt: "" },
+            modelCode: "text-text-rhart-text-g-3-flash-preview",
+            generateNum: 1,
+            subType: "text-text",
+            textModelListType: "text-text",
+            title: textConfig.title || config.title || "Agent 图片提示词",
+            agentCreated: true,
+            from: "bridge",
+            agentNodeType: textConfig.agentNodeType || "image-prompt",
+            status: "idle",
+            text: promptText,
+            maxConnect: { image: null, text: null, video: null },
+            ...(textConfig.data || {})
+          }
+        };
+      } else {
+        textNode = {
+          ...textNode,
+          data: {
+            ...(textNode.data || {}),
+            ...(textConfig.data || {}),
+            ...(textConfig.title !== undefined ? { title: textConfig.title } : {}),
+            ...(textConfig.text !== undefined || config.text !== undefined ? { text: promptText } : {})
+          }
+        };
+      }
+
+      const model = resolveModelAlias({ modelName: imageConfig.modelName, modelCode: imageConfig.modelCode, subType: imageConfig.subType || imageNode?.data?.subType || "text-image" });
+      if (!imageNode) {
+        imageNode = {
+          id: imageId,
+          type: "rh-image",
+          position: {
+            x: Number(imageConfig.x ?? imageConfig.position?.x ?? (Number(textNode.position?.x) || Math.max(300, maxX + 360)) + 520),
+            y: Number(imageConfig.y ?? imageConfig.position?.y ?? textNode.position?.y ?? 300)
+          },
+          zIndex: currentNodes.length + 2,
+          style: {},
+          selectable: true,
+          data: {
+            params: {
+              prompt: imagePrompt,
+              aspectRatio: imageConfig.aspectRatio ?? null,
+              quality: imageConfig.quality || "medium",
+              resolution: imageConfig.resolution || "1k",
+              ...(model?.params || {}),
+              ...(imageConfig.params || {})
+            },
+            modelCode: model?.modelCode || MODEL_OPTIONS["text-image"].defaultModelCode,
+            generateNum: Number(imageConfig.generateNum || 1),
+            subType: imageConfig.subType || "text-image",
+            title: imageConfig.title || "Agent 图片生成｜待确认",
+            status: "idle",
+            panorama: { pausedModel: "" },
+            agentCreated: true,
+            from: "bridge",
+            preparedBy: "bridge",
+            preparedAt: timestamp,
+            ...(imageConfig.data || {})
+          }
+        };
+      } else {
+        imageNode = {
+          ...imageNode,
+          data: {
+            ...(imageNode.data || {}),
+            ...(imageConfig.data || {}),
+            params: {
+              ...(imageNode.data?.params || {}),
+              ...(imagePrompt !== undefined ? { prompt: imagePrompt } : {}),
+              ...(model?.params || {}),
+              ...(imageConfig.params || {})
+            },
+            ...(model?.modelCode ? { modelCode: model.modelCode } : {}),
+            ...(imageConfig.title !== undefined ? { title: imageConfig.title } : {}),
+            preparedBy: "bridge",
+            preparedAt: timestamp
+          }
+        };
+      }
+
+      const upsertNode = (targetNode) => {
+        const index = currentNodes.findIndex((node) => node?.id === targetNode.id);
+        if (index === -1) {
+          nodes.push([toYValue(Y, targetNode)]);
+          currentNodes.push(targetNode);
+          return "created";
+        }
+        nodes.delete(index, 1);
+        nodes.insert(index, [toYValue(Y, targetNode)]);
+        currentNodes[index] = targetNode;
+        return "updated";
+      };
+
+      const addedEdges = [];
+      const ensureEdge = (source, target) => {
+        const edgeId = `e-${source}-${target}`;
+        const exists = currentEdges.some((edge) => edge?.id === edgeId || (edge?.source === source && edge?.target === target));
+        if (exists) return;
+        const edge = { id: edgeId, source, target, sourceHandle: "output", targetHandle: "input", type: "default", animated: false };
+        edges.push([toYValue(Y, edge)]);
+        currentEdges.push(edge);
+        addedEdges.push(edge);
+      };
+
+      let textAction;
+      let imageAction;
+      doc.transact(() => {
+        textAction = upsertNode(textNode);
+        imageAction = upsertNode(imageNode);
+        ensureEdge(textNode.id, imageNode.id);
+        for (const refNode of references.filter(Boolean)) ensureEdge(refNode.id, imageNode.id);
+      });
+
+      return {
+        ok: true,
+        canvasId,
+        run: config.run === true ? "not-run-by-bridge" : false,
+        textNodeId: textNode.id,
+        imageNodeId: imageNode.id,
+        referenceNodeIds,
+        nodeIds: [textNode.id, imageNode.id],
+        nodes: [textNode, imageNode],
+        addedEdges,
+        actions: { textNode: textAction, imageNode: imageAction, referencesConnected: referenceNodeIds.length },
+        counts: { createdOrUpdatedNodes: 2, connectedReferences: referenceNodeIds.length, addedEdges: addedEdges.length },
+        nextActions: ["Inspect the compact wiring summary, then run validate-node-run/run-node only after explicit user confirmation."]
+      };
+    });
+
   const createReferenceImageNode = async (config = {}, command = {}) =>
     withCanvasMutation(command, ({ Y, doc, nodes, edges }) => {
       const sourceUrl = config.sourceUrl || config.url || config.sourceObject;
@@ -2404,6 +2786,10 @@
         result = canvasCapabilities();
       } else if (command.type === "canvas.findElements") {
         result = await findElements(command.query || command);
+      } else if (command.type === "canvas.findReferenceCandidates") {
+        result = await findReferenceCandidates(command);
+      } else if (command.type === "canvas.describeImageNode") {
+        result = await describeImageNode(command);
       } else if (command.type === "canvas.suggestEmptyRegion") {
         result = await suggestEmptyRegion(command);
       } else if (command.type === "canvas.getElement") {
@@ -2430,6 +2816,8 @@
         result = await createVideoNode(command.config || {}, command);
       } else if (command.type === "canvas.createImageNode") {
         result = await createImageNode(command.config || {}, command);
+      } else if (command.type === "canvas.prepareImageWorkflow") {
+        result = await prepareImageWorkflow(command);
       } else if (command.type === "canvas.createReferenceImageNode") {
         result = await createReferenceImageNode(command.config || {}, command);
       } else if (command.type === "canvas.createReferenceFromUrl") {
