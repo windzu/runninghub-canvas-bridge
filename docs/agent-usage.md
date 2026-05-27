@@ -1,16 +1,18 @@
 # Agent Usage
 
-This project exposes a local bridge for Agents to operate a logged-in RunningHub infinite canvas without mouse automation.
+This product exposes a local bridge for Agents to operate a logged-in RunningHub infinite canvas without mouse automation.
 
 For repeatable black-box acceptance testing, use `docs/agent-qa-playbook.md`.
+
+When using a release, Agents should use `runninghub-canvas-bridge ...` as the product boundary. Do not patch installed package internals when a command fails; run `runninghub-canvas-bridge doctor` and `runninghub-canvas-bridge report --write`.
 
 ## First Commands
 
 Run these before touching the canvas:
 
-- `node scripts/rh-bridge.mjs agent-manifest`
-- `node scripts/rh-bridge.mjs preflight`
-- `node scripts/rh-bridge.mjs clients`
+- `runninghub-canvas-bridge agent-manifest`
+- `runninghub-canvas-bridge doctor`
+- `runninghub-canvas-bridge clients`
 
 `agent-manifest` is machine-readable and works even when the bridge server is offline. `preflight` requires the local bridge server and checks:
 
@@ -21,7 +23,7 @@ Run these before touching the canvas:
 
 Only proceed when `preflight.ok` is `true`.
 
-If `preflight` returns `NO_PAGE_CLIENT`, run `node scripts/rh-bridge.mjs diagnose-extension`. On first Chrome setup, the page may be blocked until the user allows the local-network prompt for `rhtv.runninghub.cn`.
+If `doctor` returns `NO_PAGE_CLIENT`, run `runninghub-canvas-bridge diagnose-extension`. On first Chrome setup, the page may be blocked until the user allows the local-network prompt for `rhtv.runninghub.cn`.
 
 ## Safety Rules
 
@@ -35,8 +37,8 @@ If `preflight` returns `NO_PAGE_CLIENT`, run `node scripts/rh-bridge.mjs diagnos
 
 Preferred command:
 
-- `node scripts/rh-bridge.mjs generate-video-node <videoNodeId> --dry-run --append-prompt "<constraints>"`
-- `node scripts/rh-bridge.mjs generate-video-node <videoNodeId> --timeout <ms> --append-prompt "<constraints>"`
+- `runninghub-canvas-bridge generate-video-node <videoNodeId> --dry-run --append-prompt "<constraints>"`
+- `runninghub-canvas-bridge generate-video-node <videoNodeId> --timeout <ms> --append-prompt "<constraints>"`
 
 The high-level command performs:
 
@@ -97,7 +99,7 @@ If `preflight` reports stale clients but also shows a fresh selected client, use
 
 Prefer:
 
-- `node scripts/rh-bridge.mjs upload-local-reference-image --file <path> --config-json '<json>' --timeout 60000`
+- `runninghub-canvas-bridge upload-local-reference-image --file <path> --config-json '<json>' --timeout 60000`
 
 Use `result.primaryReference.nodeId` as the upstream image node for later commands. Do not infer the usable reference from the visible staging node; RunningHub may create a separate native upload node.
 

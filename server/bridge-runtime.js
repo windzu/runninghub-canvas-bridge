@@ -1,5 +1,7 @@
 (() => {
   const RUNTIME_VERSION = window.__RUNNINGHUB_CANVAS_BRIDGE_EXPECTED_VERSION__ || "dev";
+  const LOADER_VERSION = window.__RUNNINGHUB_CANVAS_BRIDGE_LOADER_VERSION__ || "unknown";
+  const PROTOCOL_VERSION = window.__RUNNINGHUB_CANVAS_BRIDGE_PROTOCOL_VERSION__ || "1";
   if (window.__RUNNINGHUB_CANVAS_BRIDGE_INSTALLED__) {
     if (window.__RUNNINGHUB_CANVAS_BRIDGE_VERSION__ === RUNTIME_VERSION) return;
     try {
@@ -71,6 +73,8 @@
       href: location.href,
       title: document.title,
       runtimeVersion: RUNTIME_VERSION,
+      loaderVersion: LOADER_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
       runtimeCommands: window.__RUNNINGHUB_CANVAS_BRIDGE__?.commands,
       ...event
     };

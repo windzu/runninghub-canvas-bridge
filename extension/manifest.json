@@ -3,6 +3,7 @@
   "name": "RunningHub Canvas Bridge",
   "version": "0.1.0",
   "description": "Local bridge for inspecting and controlling RunningHub canvas pages.",
+  "runninghub_canvas_bridge_protocol": "1",
   "permissions": [],
   "host_permissions": [
     "https://rhtv.runninghub.cn/*",

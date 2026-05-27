@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  github-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify release
+        run: npm run release:check
+
+      - name: Package extension
+        run: npm run release:package
+
+      - name: Package npm tarball
+        run: npm pack
+
+      - name: Write release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cat > release-notes.md <<EOF
+          RunningHub Canvas Bridge ${VERSION}
+
+          Assets:
+          - npm CLI tarball: runninghub-canvas-bridge-${VERSION}.tgz
+          - Chrome extension: runninghub-canvas-bridge-extension-v${VERSION}.zip
+          - Extension checksum: runninghub-canvas-bridge-extension-v${VERSION}.sha256
+
+          Install:
+          - npm: npm install -g runninghub-canvas-bridge
+          - GitHub asset: npm install -g ./runninghub-canvas-bridge-${VERSION}.tgz
+
+          Browser extension:
+          1. Download and unzip runninghub-canvas-bridge-extension-v${VERSION}.zip.
+          2. Open chrome://extensions/.
+          3. Enable Developer mode.
+          4. Load unpacked and select the unzipped extension directory.
+          5. Run runninghub-canvas-bridge doctor.
+
+          Bridge protocol: 1
+          EOF
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "RunningHub Canvas Bridge ${GITHUB_REF_NAME#v}" \
+            --notes-file release-notes.md \
+            dist/*.zip \
+            dist/*.sha256 \
+            runninghub-canvas-bridge-*.tgz

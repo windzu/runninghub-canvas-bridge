@@ -10,7 +10,7 @@ Use this playbook after bridge, runtime, or CLI changes that affect Agent-facing
 
 The Agent must:
 
-- use only `node scripts/rh-bridge.mjs ...` for canvas operations
+- use only `runninghub-canvas-bridge ...` for canvas operations when testing a release
 - avoid mouse automation and page DOM poking
 - avoid `page.eval`
 - avoid reading implementation source during the test
@@ -70,9 +70,9 @@ Pass criteria:
 Run this for normal Agent acceptance testing.
 
 1. Preflight.
-   - `node scripts/rh-bridge.mjs agent-manifest`
-   - `node scripts/rh-bridge.mjs preflight`
-   - `node scripts/rh-bridge.mjs capabilities`
+   - `runninghub-canvas-bridge agent-manifest`
+   - `runninghub-canvas-bridge doctor`
+   - `runninghub-canvas-bridge capabilities`
    - Continue only when `preflight.ok` is `true`.
 
 2. Clear the canvas.

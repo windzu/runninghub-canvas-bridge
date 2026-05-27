@@ -1,6 +1,8 @@
 # Agent Quickstart
 
-This repository is a local tool layer for operating a logged-in RunningHub infinite canvas without mouse automation.
+This product is a local tool layer for operating a logged-in RunningHub infinite canvas without mouse automation.
+
+When using an installed release, prefer `runninghub-canvas-bridge ...` commands. Do not patch installed package internals to recover from bridge errors; run `runninghub-canvas-bridge doctor` and `runninghub-canvas-bridge report --write` instead.
 
 For repeatable Agent-as-user QA, follow `docs/agent-qa-playbook.md`.
 
@@ -17,9 +19,9 @@ The goal for any Agent is simple:
 
 Run these before changing the canvas:
 
-- `node scripts/rh-bridge.mjs agent-manifest`
-- `node scripts/rh-bridge.mjs preflight`
-- `node scripts/rh-bridge.mjs canvas-summary`
+- `runninghub-canvas-bridge agent-manifest`
+- `runninghub-canvas-bridge doctor`
+- `runninghub-canvas-bridge canvas-summary`
 
 Only proceed when `preflight.ok` is `true`.
 
@@ -32,7 +34,7 @@ Important blocking reasons:
 
 If `NO_PAGE_CLIENT` persists, run:
 
-- `node scripts/rh-bridge.mjs diagnose-extension`
+- `runninghub-canvas-bridge diagnose-extension`
 
 First-time Chrome setup may show a local-network permission prompt for `rhtv.runninghub.cn`. The user must allow it before the page can reach `127.0.0.1`.
 
@@ -40,7 +42,7 @@ First-time Chrome setup may show a local-network permission prompt for `rhtv.run
 
 Prefer the one-shot command:
 
-- `node scripts/rh-bridge.mjs upload-local-reference-image --file /absolute/path/image.jpg --config-json '{"x":300,"y":300,"title":"参考图"}' --timeout 60000`
+- `runninghub-canvas-bridge upload-local-reference-image --file /absolute/path/image.jpg --config-json '{"x":300,"y":300,"title":"参考图"}' --timeout 60000`
 
 Use these fields from the result:
 
@@ -54,7 +56,7 @@ Avoid relying on the staging node unless you specifically need it for layout. Ru
 
 If you already have a usable image URL, prefer:
 
-- `node scripts/rh-bridge.mjs create-reference-from-url --url <imageUrl> --config-json '{"x":300,"y":300,"title":"参考图"}'`
+- `runninghub-canvas-bridge create-reference-from-url --url <imageUrl> --config-json '{"x":300,"y":300,"title":"参考图"}'`
 
 Use `primaryReference.nodeId` exactly as you would use a locally uploaded reference.
 
@@ -84,24 +86,24 @@ Use this order:
 3. Connect or provide prompt text.
    `prepare-video-node` preserves existing video prompt text by default and merges upstream text/reference inputs.
 4. Validate:
-   `node scripts/rh-bridge.mjs validate-node-run <videoNodeId> --require-references`
+   `runninghub-canvas-bridge validate-node-run <videoNodeId> --require-references`
 5. Dry-run:
-   `node scripts/rh-bridge.mjs generate-video-node <videoNodeId> --dry-run --timeout 60000`
+   `runninghub-canvas-bridge generate-video-node <videoNodeId> --dry-run --timeout 60000`
 6. Confirm:
    - `validation.ok` is `true`
    - `subType` is `multimodal-video`
    - `modelCode` contains `multimodal-video`
    - every `references[].hasDirectUpstreamImage` is `true`
 7. Run only when generation is allowed:
-   `node scripts/rh-bridge.mjs generate-video-node <videoNodeId> --timeout 180000`
+   `runninghub-canvas-bridge generate-video-node <videoNodeId> --timeout 180000`
 8. Poll output:
-   `node scripts/rh-bridge.mjs poll-node-result <videoNodeId> --poll-timeout 300000 --timeout 305000`
+   `runninghub-canvas-bridge poll-node-result <videoNodeId> --poll-timeout 300000 --timeout 305000`
 
 The poll result exposes `outputs[].url` for generated media.
 
 If you have a RunningHub `taskId`, use:
 
-- `node scripts/rh-bridge.mjs poll-task-result <taskId> --poll-timeout 300000 --timeout 305000`
+- `runninghub-canvas-bridge poll-task-result <taskId> --poll-timeout 300000 --timeout 305000`
 
 This scans canvas node outputs for matching `taskId`.
 

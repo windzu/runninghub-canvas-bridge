@@ -4,6 +4,9 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 
 const PORT = 8765;
+const PRODUCT_NAME = "runninghub-canvas-bridge";
+const PRODUCT_VERSION = "0.1.0";
+const BRIDGE_PROTOCOL_VERSION = "1";
 const RUNTIME_PATH = new URL("./bridge-runtime.js", import.meta.url);
 const events = [];
 const pendingCommands = new Map();
@@ -20,7 +23,15 @@ const isCanvasClient = (client) => /runninghub\.cn\/projects\/canvas/.test(Strin
 const runtimeInfo = async () => {
   const [runtime, source] = await Promise.all([stat(RUNTIME_PATH), readFile(RUNTIME_PATH, "utf8")]);
   const hash = createHash("sha256").update(source).digest("hex").slice(0, 16);
-  return { mtimeMs: runtime.mtimeMs, size: runtime.size, hash, version: `${runtime.mtimeMs}:${runtime.size}:${hash}`, source };
+  return {
+    mtimeMs: runtime.mtimeMs,
+    size: runtime.size,
+    hash,
+    version: `${PRODUCT_VERSION}:${BRIDGE_PROTOCOL_VERSION}:${runtime.mtimeMs}:${runtime.size}:${hash}`,
+    productVersion: PRODUCT_VERSION,
+    protocolVersion: BRIDGE_PROTOCOL_VERSION,
+    source
+  };
 };
 
 const selectClient = async (requestedClientId) => {
@@ -122,6 +133,8 @@ const server = http.createServer(async (req, res) => {
           href: event.href,
           title: event.title,
           runtimeVersion: event.runtimeVersion,
+          loaderVersion: event.loaderVersion,
+          protocolVersion: event.protocolVersion,
           runtimeCommands: event.runtimeCommands,
           canvasId: canvasIdFromHref(event.href),
           lastSeq: event.seq,
@@ -156,17 +169,22 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/diagnose-extension") {
       const { route, sorted } = await selectClient();
-      const recentEvents = events.slice(-20).map(({ kind, clientId, ts, href, runtimeVersion, error }) => ({
+      const recentEvents = events.slice(-20).map(({ kind, clientId, ts, href, runtimeVersion, loaderVersion, protocolVersion, error }) => ({
         kind,
         clientId,
         ts,
         href,
         runtimeVersion,
+        loaderVersion,
+        protocolVersion,
         error
       }));
       return json(res, 200, {
         ok: Boolean(route.selectedClientId && route.runtimeFreshness === "fresh"),
         bridgeUrl: `http://127.0.0.1:${PORT}`,
+        product: PRODUCT_NAME,
+        version: PRODUCT_VERSION,
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
         runtimeUrl: `http://127.0.0.1:${PORT}/bridge-runtime.js`,
         expectedExtensionMatches: ["https://rhtv.runninghub.cn/*"],
         connectedCanvasClients: sorted.length,
@@ -244,7 +262,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/health") {
-      return json(res, 200, { ok: true, events: events.length, pendingClients: pendingCommands.size });
+      return json(res, 200, {
+        ok: true,
+        product: PRODUCT_NAME,
+        version: PRODUCT_VERSION,
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
+        events: events.length,
+        pendingClients: pendingCommands.size
+      });
     }
 
     return json(res, 404, { error: "not found" });

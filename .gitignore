@@ -5,4 +5,5 @@ captures/
 tmp/
 .env
 .env.*
-
+dist/
+*.tgz

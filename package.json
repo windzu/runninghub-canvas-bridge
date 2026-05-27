@@ -3,10 +3,37 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
+  "description": "Local CLI, bridge server, and Chrome extension for agent-level RunningHub canvas control.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/windzu/runninghub-canvas-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/windzu/runninghub-canvas-bridge/issues"
+  },
+  "homepage": "https://github.com/windzu/runninghub-canvas-bridge#readme",
+  "bin": {
+    "runninghub-canvas-bridge": "bin/runninghub-canvas-bridge.mjs",
+    "rh-canvas-bridge": "bin/runninghub-canvas-bridge.mjs"
+  },
+  "files": [
+    "bin/",
+    "docs/",
+    "extension/",
+    "scripts/",
+    "server/",
+    "AGENT_QUICKSTART.md",
+    "README.md",
+    "CONTRIBUTING.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node server/server.mjs",
-    "check": "node --check server/server.mjs && node --check server/bridge-runtime.js && node --check extension/bridge-main.js && node --check scripts/rh-bridge.mjs && node --check scripts/rh-service.mjs",
+    "check": "node --check server/server.mjs && node --check server/bridge-runtime.js && node --check extension/bridge-main.js && node --check scripts/rh-bridge.mjs && node --check scripts/rh-service.mjs && node --check bin/runninghub-canvas-bridge.mjs && node --check scripts/package-release.mjs",
     "bridge": "node scripts/rh-bridge.mjs",
+    "cli": "node bin/runninghub-canvas-bridge.mjs",
+    "release:check": "npm run check && npm pack --dry-run",
+    "release:package": "node scripts/package-release.mjs",
     "service:install": "node scripts/rh-service.mjs install",
     "service:start": "node scripts/rh-service.mjs start",
     "service:status": "node scripts/rh-service.mjs status",

@@ -1,9 +1,13 @@
 (() => {
   const BRIDGE = "http://127.0.0.1:8765";
   const LOADER_KEY = "__RUNNINGHUB_CANVAS_BRIDGE_LOADER__";
+  const LOADER_VERSION = "0.1.0";
+  const PROTOCOL_VERSION = "1";
 
   if (window[LOADER_KEY]?.loading) return;
   window[LOADER_KEY] = { loading: true, loadedAt: 0, error: null };
+  window.__RUNNINGHUB_CANVAS_BRIDGE_LOADER_VERSION__ = LOADER_VERSION;
+  window.__RUNNINGHUB_CANVAS_BRIDGE_PROTOCOL_VERSION__ = PROTOCOL_VERSION;
 
   const loadRuntime = async () => {
     const url = `${BRIDGE}/bridge-runtime.js?ts=${Date.now()}`;
