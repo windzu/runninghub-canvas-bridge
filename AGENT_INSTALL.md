@@ -41,7 +41,7 @@ The bridge requires the browser extension because RunningHub API calls must run 
 
 Start the local bridge server:
 
-`runninghub-canvas-bridge start`
+`runninghub-canvas-bridge start --daemon`
 
 In another terminal, run:
 
@@ -51,7 +51,7 @@ Proceed only when `doctor.ok` is `true`.
 
 Common blocking reasons:
 
-- `BRIDGE_OFFLINE`: start the bridge with `runninghub-canvas-bridge start`.
+- `BRIDGE_OFFLINE`: start the bridge with `runninghub-canvas-bridge start --daemon`.
 - `NO_PAGE_CLIENT`: open or refresh a logged-in RunningHub canvas page with the extension enabled.
 - `STALE_RUNTIME`: refresh the RunningHub canvas page.
 - `MISSING_CAPABILITY`: refresh the page and verify that the installed CLI/extension versions match.
@@ -102,6 +102,15 @@ Include:
 - the redacted diagnostic report
 
 Do not include cookies, tokens, authorization headers, or private RunningHub payloads.
+
+## Service Lifecycle
+
+For released/global installs, prefer daemon mode:
+
+- `runninghub-canvas-bridge start --daemon`
+- `runninghub-canvas-bridge status`
+- `runninghub-canvas-bridge restart`
+- `runninghub-canvas-bridge stop`
 
 ## Updating
 
