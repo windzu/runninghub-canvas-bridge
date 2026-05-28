@@ -914,7 +914,7 @@
     commands: COMMAND_CAPABILITIES
   });
 
-  const summarizeCanvas = async ({ includeUrls = false, includeTextPreview = true, compact = true, full = false, limit, types, status, fields, textPreviewLength = 120 } = {}) =>
+  const summarizeCanvas = async ({ includeUrls = false, includeTextPreview = true, compact = true, full = false, limit, types, status, fields, textPreviewLength = 120, noEdges = false } = {}) =>
     withCanvasYjs(({ nodes, edges, canvasId }) => {
       const currentNodes = yArrayToJson(nodes);
       const currentEdges = yArrayToJson(edges);
@@ -965,7 +965,7 @@
         compact: !full && Boolean(compact),
         counts: { nodes: currentNodes.length, edges: currentEdges.length, byType, byStatus, matchedNodes: nodeSummaries.length, returnedNodes: limitedNodes.length },
         nodes: !full && Boolean(compact) && effectiveLimit === 0 ? undefined : limitedNodes,
-        edges: full ? currentEdges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, type: edge.type })) : undefined,
+        edges: full && !noEdges ? currentEdges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, type: edge.type })) : undefined,
         truncated: effectiveLimit !== undefined && nodeSummaries.length > limitedNodes.length,
         nextActions: []
       };
@@ -987,14 +987,18 @@
             })
           )
         : matches.nodes;
-      const edgeMatches = summary ? matches.edges.map((edge) => compactEdgeSummary(edge, { fields: query.edgeFields })) : matches.edges;
+      const edgeMatches = query.noEdges ? [] : summary ? matches.edges.map((edge) => compactEdgeSummary(edge, { fields: query.edgeFields })) : matches.edges;
+      const returnedNodes = limit === undefined ? nodeMatches : nodeMatches.slice(0, limit);
+      const returnedEdges = limit === undefined ? edgeMatches : edgeMatches.slice(0, limit);
       return {
         canvasId,
         query,
         counts: matches.counts,
-        nodes: limit === undefined ? nodeMatches : nodeMatches.slice(0, limit),
-        edges: limit === undefined ? edgeMatches : edgeMatches.slice(0, limit),
-        limited: limit !== undefined
+        nodes: returnedNodes,
+        edges: returnedEdges,
+        returnedCounts: { nodes: returnedNodes.length, edges: returnedEdges.length },
+        limited: limit !== undefined,
+        edgesOmitted: Boolean(query.noEdges)
       };
     });
 

@@ -82,7 +82,7 @@ The setup output includes `extension.unpackedPath`. Load that directory in Chrom
 
 Start the local bridge:
 
-`runninghub-canvas-bridge start`
+`runninghub-canvas-bridge start --daemon`
 
 In another terminal, verify:
 
@@ -146,7 +146,7 @@ Download the matching extension zip from the GitHub Release, unzip it, and load 
 
 Start the local bridge:
 
-`runninghub-canvas-bridge start`
+`runninghub-canvas-bridge start --daemon`
 
 Verify the installation:
 
@@ -235,7 +235,7 @@ CLI output is JSON by default for automation. Add `--pretty-summary` to common c
 
 Common setup failures:
 
-- `BRIDGE_OFFLINE`: start the local server with `npm run start`.
+- `BRIDGE_OFFLINE`: start the local server with `runninghub-canvas-bridge start --daemon`.
 - `NO_PAGE_CLIENT`: open or refresh a RunningHub canvas page with the unpacked extension enabled.
 - `STALE_RUNTIME`: refresh the RunningHub canvas page so it picks up the latest runtime.
 - `MISSING_CAPABILITY`: refresh the page and verify the extension loaded from the current repository.
@@ -249,7 +249,10 @@ When using an installed release, Agents should call `runninghub-canvas-bridge ..
 ## Product CLI
 
 - `runninghub-canvas-bridge setup`: print install paths and extension setup steps.
-- `runninghub-canvas-bridge start`: start the local bridge server on `127.0.0.1:8765`.
+- `runninghub-canvas-bridge start`: start the local bridge server in the foreground.
+- `runninghub-canvas-bridge start --daemon`: start the local bridge server in the background.
+- `runninghub-canvas-bridge stop`: stop the background bridge process started by the CLI.
+- `runninghub-canvas-bridge restart`: restart the bridge in daemon mode.
 - `runninghub-canvas-bridge doctor`: run bridge, extension, page client, runtime, and capability diagnostics.
 - `runninghub-canvas-bridge status`: compact bridge/server/client status.
 - `runninghub-canvas-bridge extension`: print extension path, permissions, version, and install steps.
@@ -274,12 +277,12 @@ The service runs `server/server.mjs` locally and does not store cookies, tokens,
 - `npm run bridge -- clients`: list active bridge clients seen by the local server.
 - `npm run bridge -- events`: list recent bridge events.
 - `npm run bridge -- snapshot`: return a DOM-level graph snapshot from the live canvas page.
-- `npm run bridge -- yjs-snapshot`: return the canonical Yjs canvas nodes and edges.
+- `npm run bridge -- yjs-snapshot`: return a compact snapshot summary by default; add `--full` only when canonical Yjs nodes and edges are needed.
 - `npm run bridge -- canvas-summary`: return compact Agent-oriented canvas state. Use `--full` for full edge output, `--limit <n>`, `--types <csv>`, `--status <csv>`, `--fields <csv>`, `--no-urls`, and `--no-text-preview` to control output size.
 - `npm run bridge -- rollback-list`: list recent rollback points created by mutating commands.
 - `npm run bridge -- rollback [rollbackId]`: restore the latest or selected rollback point.
 - `npm run bridge -- capabilities`: return supported bridge commands and parameter notes.
-- `npm run bridge -- find-elements --query-json '<json>'`: find nodes and edges by id, type, text/title query, or position bounds. Use `--summary`, `--fields <csv>`, `--limit <n>`, `--no-outputs`, and `--text-preview-length <n>` for safer compact output.
+- `npm run bridge -- find-elements --query-json '<json>'`: find nodes and edges by id, type, text/title query, or position bounds. Use `--summary`, `--type <type>`, `--fields <csv>`, `--limit <n>`, `--no-edges`, `--no-outputs`, and `--text-preview-length <n>` for safer compact output.
 - `npm run bridge -- suggest-empty-region --near-text '<text>' --width <n> --height <n> --padding <n>`: suggest a conservative empty region for new Agent-created nodes.
 - `npm run bridge -- get-element <id>`: return one node or edge by id.
 - `npm run bridge -- inspect-node-template <nodeId>`: extract a reusable `create-node` template from an existing node.

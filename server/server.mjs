@@ -218,7 +218,7 @@ const server = http.createServer(async (req, res) => {
           route,
           nextActions: [
             "Open or refresh a logged-in RunningHub canvas page with the unpacked extension enabled.",
-            "Run `npm run bridge -- diagnose-extension` for setup diagnostics."
+            "Run `runninghub-canvas-bridge diagnose-extension` for setup diagnostics."
           ]
         });
       }

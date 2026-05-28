@@ -29,7 +29,7 @@ Only proceed when `doctor.ok` is `true`.
 
 Important blocking reasons:
 
-- `BRIDGE_OFFLINE`: start `node server/server.mjs`.
+- `BRIDGE_OFFLINE`: start `runninghub-canvas-bridge start --daemon`.
 - `NO_PAGE_CLIENT`: open or refresh a RunningHub canvas page with the unpacked extension enabled.
 - `STALE_RUNTIME`: refresh the RunningHub canvas page or let the runtime auto-reload on the next command.
 - `MISSING_CAPABILITY`: the live page runtime does not expose the expected Agent commands.

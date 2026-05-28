@@ -30,7 +30,7 @@ The setup output includes `extension.unpackedPath`. Load that directory in Chrom
 5. Allow Chrome local-network access if prompted.
 6. Start the local bridge:
 
-   `runninghub-canvas-bridge start`
+   `runninghub-canvas-bridge start --daemon`
 
 7. In another terminal, verify:
 
@@ -72,7 +72,7 @@ You can also download the assets manually:
 9. Allow Chrome local-network access if prompted.
 10. Start the local bridge:
 
-    `runninghub-canvas-bridge start`
+    `runninghub-canvas-bridge start --daemon`
 
 11. In another terminal, verify:
 
@@ -106,7 +106,7 @@ Install the browser extension:
 
 Verify:
 
-`runninghub-canvas-bridge start`
+`runninghub-canvas-bridge start --daemon`
 
 In another terminal:
 

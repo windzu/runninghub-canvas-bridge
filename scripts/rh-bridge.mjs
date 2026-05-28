@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 const DEFAULT_BRIDGE = "http://127.0.0.1:8765";
 const bridge = process.env.RH_BRIDGE_URL || DEFAULT_BRIDGE;
 const MANIFEST_VERSION = "2026-05-24";
+const CLI = "runninghub-canvas-bridge";
 
 const AGENT_MANIFEST = {
   name: "runninghub-canvas-bridge",
@@ -18,36 +19,36 @@ const AGENT_MANIFEST = {
     dangerousCommands: ["page.eval", "api-post", "run-node without --validate-references"]
   },
   preflight: {
-    command: "node scripts/rh-bridge.mjs preflight",
+    command: `${CLI} preflight`,
     checks: ["bridgeServer", "runtimeVersion", "pageClient", "runtimeFreshness", "capabilities"],
     readyWhen: "ok is true and no blockingReasons are returned."
   },
   recommendedWorkflows: {
     agentFirstRun: [
-      "node scripts/rh-bridge.mjs agent-manifest",
-      "node scripts/rh-bridge.mjs preflight",
-      "node scripts/rh-bridge.mjs canvas-summary"
+      `${CLI} agent-manifest`,
+      `${CLI} doctor`,
+      `${CLI} canvas-summary`
     ],
     localReferenceUpload: [
-      "node scripts/rh-bridge.mjs upload-local-reference-image --file <path> --config-json '{\"x\":300,\"y\":300}'",
+      `${CLI} upload-local-reference-image --file <path> --config-json '{"x":300,"y":300}'`,
       "Use result.primaryReference.nodeId or result.usableReferences[].nodeId as direct upstream image references."
     ],
     urlReference: [
-      "node scripts/rh-bridge.mjs create-reference-from-url --url <imageUrl> --config-json '{\"x\":300,\"y\":300}'",
+      `${CLI} create-reference-from-url --url <imageUrl> --config-json '{"x":300,"y":300}'`,
       "Use result.primaryReference.nodeId as a direct upstream image reference."
     ],
     videoGeneration: [
-      "node scripts/rh-bridge.mjs preflight",
-      "node scripts/rh-bridge.mjs generate-video-node <videoNodeId> --dry-run --append-prompt <constraints>",
+      `${CLI} doctor`,
+      `${CLI} generate-video-node <videoNodeId> --dry-run --append-prompt <constraints>`,
       "Confirm validation.ok is true, references all have hasDirectUpstreamImage true, and run is null.",
-      "node scripts/rh-bridge.mjs generate-video-node <videoNodeId> --timeout <ms> --append-prompt <constraints>",
-      "node scripts/rh-bridge.mjs poll-node-result <videoNodeId> --poll-timeout <ms>"
+      `${CLI} generate-video-node <videoNodeId> --timeout <ms> --append-prompt <constraints>`,
+      `${CLI} poll-node-result <videoNodeId> --poll-timeout <ms>`
     ],
     safeLowLevelVideoGeneration: [
-      "node scripts/rh-bridge.mjs prepare-video-node <videoNodeId> --dry-run",
-      "node scripts/rh-bridge.mjs prepare-video-node <videoNodeId>",
-      "node scripts/rh-bridge.mjs validate-video-run <videoNodeId>",
-      "node scripts/rh-bridge.mjs run-node <videoNodeId> --validate-references"
+      `${CLI} prepare-video-node <videoNodeId> --dry-run`,
+      `${CLI} prepare-video-node <videoNodeId>`,
+      `${CLI} validate-video-run <videoNodeId>`,
+      `${CLI} run-node <videoNodeId> --validate-references`
     ]
   },
   commands: {
@@ -80,7 +81,7 @@ const AGENT_MANIFEST = {
       supportsDryRun: false
     },
     "yjs-snapshot": {
-      summary: "Read canonical Yjs canvas nodes and edges.",
+      summary: "Read canonical Yjs canvas nodes and edges. This can be large; prefer canvas-summary or find-elements for normal Agent workflows.",
       requiresPageClient: true,
       mutatesCanvas: false,
       costsCredits: false,
@@ -272,12 +273,12 @@ const usage = `Usage:
   node scripts/rh-bridge.mjs events [--since <seq>]
   node scripts/rh-bridge.mjs snapshot [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs export-workflow [--client <clientId>] [--timeout <ms>]
-  node scripts/rh-bridge.mjs yjs-snapshot [--client <clientId>] [--timeout <ms>]
-  node scripts/rh-bridge.mjs canvas-summary [--client <clientId>] [--timeout <ms>] [--compact] [--full] [--limit <n>] [--types <csv>] [--status <csv>] [--fields <csv>] [--no-urls] [--no-text-preview] [--text-preview-length <n>]
+  node scripts/rh-bridge.mjs yjs-snapshot [--client <clientId>] [--timeout <ms>] [--full]
+  node scripts/rh-bridge.mjs canvas-summary [--client <clientId>] [--timeout <ms>] [--compact] [--full] [--limit <n>] [--types <csv>] [--status <csv>] [--fields <csv>] [--no-edges] [--no-urls] [--no-text-preview] [--text-preview-length <n>]
   node scripts/rh-bridge.mjs rollback-list [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs rollback [rollbackId] [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs capabilities [--client <clientId>] [--timeout <ms>]
-  node scripts/rh-bridge.mjs find-elements [--client <clientId>] [--timeout <ms>] [--query-json <json>] [--summary] [--fields <csv>] [--limit <n>] [--no-outputs] [--no-params] [--text-preview-length <n>]
+  node scripts/rh-bridge.mjs find-elements [--client <clientId>] [--timeout <ms>] [--query-json <json>] [--type <type>] [--summary] [--fields <csv>] [--limit <n>] [--no-edges] [--no-outputs] [--no-params] [--text-preview-length <n>]
   node scripts/rh-bridge.mjs get-element <id> [--client <clientId>] [--timeout <ms>]
   node scripts/rh-bridge.mjs inspect-node-template <nodeId> [--client <clientId>] [--timeout <ms>] [--include-position]
   node scripts/rh-bridge.mjs inspect-model-options [--client <clientId>] [--timeout <ms>] [--node-type <type>] [--sub-type <subType>]
@@ -441,7 +442,7 @@ const request = async (path, init) => {
           errorCode: "BRIDGE_OFFLINE",
           error: error?.message || String(error),
           bridgeUrl: bridge,
-          nextActions: ["Start the local bridge server with `npm run start` or `node server/server.mjs`, then retry the command."]
+          nextActions: [`Start the local bridge server with \`${CLI} start --daemon\` or \`${CLI} start\`, then retry the command.`]
         },
         null,
         2
@@ -518,7 +519,7 @@ const preflight = async ({ clientId, timeoutMs }) => {
       checks,
       blockingReasons,
       manifestVersion: MANIFEST_VERSION,
-      nextActions: ["Start the local bridge server with `npm run start` or `node server/server.mjs`, then rerun preflight."]
+      nextActions: [`Start the local bridge server with \`${CLI} start --daemon\` or \`${CLI} start\`, then rerun preflight.`]
     };
   }
 
@@ -587,10 +588,10 @@ const preflight = async ({ clientId, timeoutMs }) => {
     manifestVersion: MANIFEST_VERSION,
     nextActions: blockingReasons.length
       ? blockingReasons.map((reason) => {
-          if (reason === "NO_PAGE_CLIENT") return "Open a logged-in RunningHub canvas page with the Chrome extension enabled, allow Chrome local-network access if prompted, then rerun preflight or diagnose-extension.";
+          if (reason === "NO_PAGE_CLIENT") return `Open a logged-in RunningHub canvas page with the Chrome extension enabled, allow Chrome local-network access if prompted, then rerun \`${CLI} doctor\` or \`${CLI} diagnose-extension\`.`;
           if (reason === "STALE_RUNTIME") return "Reload the RunningHub canvas tab so it picks up the latest bridge runtime.";
           if (reason === "MISSING_CAPABILITY") return "Reload the RunningHub canvas tab and verify the extension injected the latest runtime.";
-          return `Resolve ${reason}, then rerun preflight.`;
+          return `Resolve ${reason}, then rerun \`${CLI} doctor\`.`;
         })
       : []
   };
@@ -632,7 +633,8 @@ if (args.includes("-h") || args.includes("--help")) {
   process.exit(0);
 }
 
-const timeoutMs = Number(option("--timeout", "15000"));
+const defaultTimeoutMs = ["canvas-summary", "find-elements", "connections", "yjs-snapshot"].includes(commandName) ? "60000" : "15000";
+const timeoutMs = Number(option("--timeout", defaultTimeoutMs));
 const clientId = option("--client");
 const title = option("--title");
 const nodeType = option("--node-type");
@@ -667,6 +669,7 @@ const limit = option("--limit");
 const types = option("--types");
 const status = option("--status");
 const fields = option("--fields");
+const elementType = option("--type");
 const referenceText = option("--text");
 const textPreviewLength = option("--text-preview-length");
 const dryRun = flag("--dry-run");
@@ -679,6 +682,7 @@ const noUrls = flag("--no-urls");
 const noTextPreview = flag("--no-text-preview");
 const noOutputs = flag("--no-outputs");
 const noParams = flag("--no-params");
+const noEdges = flag("--no-edges");
 const includeUrls = flag("--include-urls");
 const compact = flag("--compact");
 const full = flag("--full");
@@ -708,7 +712,28 @@ if (commandName === "agent-manifest") {
 } else if (commandName === "export-workflow") {
   print(await enqueue({ ...baseCommand, type: "canvas.exportWorkflow" }, timeoutMs));
 } else if (commandName === "yjs-snapshot") {
-  print(await enqueue({ ...baseCommand, type: "canvas.yjsSnapshot" }, timeoutMs));
+  if (full) {
+    print(await enqueue({ ...baseCommand, type: "canvas.yjsSnapshot" }, timeoutMs));
+  } else {
+    const summaryResult = await enqueue(
+      {
+        ...baseCommand,
+        type: "canvas.summary",
+        compact: true,
+        full: false,
+        noEdges: true,
+        limit: limit === undefined ? 50 : Number(limit),
+        includeUrls: false,
+        includeTextPreview: !noTextPreview,
+        textPreviewLength: textPreviewLength === undefined ? undefined : Number(textPreviewLength)
+      },
+      timeoutMs
+    );
+    print({
+      warning: "yjs-snapshot is compact by default to avoid huge Agent output. Pass --full for canonical nodes and edges.",
+      ...summaryResult
+    });
+  }
 } else if (commandName === "canvas-summary") {
   print(
     await enqueue(
@@ -721,6 +746,7 @@ if (commandName === "agent-manifest") {
         types,
         status,
         fields,
+        noEdges,
         textPreviewLength: textPreviewLength === undefined ? undefined : Number(textPreviewLength),
         includeUrls: full && !noUrls,
         includeTextPreview: !noTextPreview
@@ -740,7 +766,9 @@ if (commandName === "agent-manifest") {
     ...jsonOption("--query-json"),
     ...(summary ? { summary: true } : {}),
     ...(fields ? { fields } : {}),
-    ...(limit === undefined ? {} : { limit: Number(limit) }),
+    ...(elementType ? { type: elementType } : {}),
+    ...(limit === undefined && summary ? { limit: 50 } : limit === undefined ? {} : { limit: Number(limit) }),
+    ...(noEdges ? { noEdges: true } : {}),
     ...(noOutputs ? { noOutputs: true } : {}),
     ...(noParams ? { noParams: true } : {}),
     ...(textPreviewLength === undefined ? {} : { textPreviewLength: Number(textPreviewLength) })
