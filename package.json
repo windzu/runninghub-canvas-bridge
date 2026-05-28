@@ -23,6 +23,7 @@
     "scripts/",
     "server/",
     "AGENT_QUICKSTART.md",
+    "AGENT_INSTALL.md",
     "README.md",
     "CONTRIBUTING.md",
     "LICENSE"

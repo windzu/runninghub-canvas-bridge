@@ -2,6 +2,8 @@
 
 RunningHub Canvas Bridge is a local CLI, bridge server, and Chrome extension for controlling RunningHub infinite canvas through the page's own API context instead of mouse automation.
 
+If you are an external Agent and only have this repository URL, start with `AGENT_INSTALL.md`. It explains how to install the CLI from GitHub, load the browser extension, verify readiness, and report failures without modifying source code.
+
 The goal is:
 
 - Observe what RunningHub's built-in Agent sends and receives.
@@ -41,6 +43,7 @@ Not implemented yet:
 - `server/bridge-runtime.js`: hot-loaded page bridge runtime served by the local server.
 - `server/server.mjs`: local bridge server.
 - `docs/release.md`: release packaging and installation guide.
+- `AGENT_INSTALL.md`: install and first-use guide for external Agents given only this repository URL.
 - `AGENT_QUICKSTART.md`: minimal handoff guide for Agents operating the canvas.
 - `docs/agent-usage.md`: fuller operating guide for autonomous Agents.
 - `docs/context.md`: research context and known RunningHub internals.

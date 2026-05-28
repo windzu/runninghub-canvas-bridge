@@ -2,6 +2,8 @@
 
 This product is a local tool layer for operating a logged-in RunningHub infinite canvas without mouse automation.
 
+If you have only been given the repository URL and need to install the tool first, read `AGENT_INSTALL.md`.
+
 When using an installed release, prefer `runninghub-canvas-bridge ...` commands. Do not patch installed package internals to recover from bridge errors; run `runninghub-canvas-bridge doctor` and `runninghub-canvas-bridge report --write` instead.
 
 For repeatable Agent-as-user QA, follow `docs/agent-qa-playbook.md`.
@@ -23,7 +25,7 @@ Run these before changing the canvas:
 - `runninghub-canvas-bridge doctor`
 - `runninghub-canvas-bridge canvas-summary`
 
-Only proceed when `preflight.ok` is `true`.
+Only proceed when `doctor.ok` is `true`.
 
 Important blocking reasons:
 
